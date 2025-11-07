@@ -1,0 +1,27 @@
+name: telegram-job-bot
+channels:
+  - conda-forge
+  - defaults
+dependencies:
+  - python=3.11
+  - pip
+  - pip:
+      # Core bot dependencies
+      - python-telegram-bot==20.8
+      - requests==2.31.0
+      - python-dotenv==1.0.0
+      
+      # Database and data handling
+      - SQLAlchemy==2.0.23
+      - pydantic==2.5.3
+      
+      # LLM integration
+      - openai==1.54.3
+      
+      # Timezone handling
+      - pytz==2024.1
+      - tzdata==2024.1
+      
+      # Development dependencies
+      - pytest==7.4.3
+      - pytest-asyncio==0.21.1
