@@ -195,7 +195,7 @@ async def handle_feedback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             await update.callback_query.edit_message_text("Job context expired. Try /more again for fresh listings.")
             return
 
-        tokens = job.desc.split() if job.desc else job.title.split()
+        tokens = getattr(job, "desc", "").split() if getattr(job, "desc", None) else job.title.split()
         deps.keyword_manager.apply_feedback(user.keywords, tokens, liked)
 
         interaction = Interaction(user_id=user_id, job_id=job_id, action="like" if liked else "dislike")
@@ -214,7 +214,7 @@ def format_job_card(job: Job | JobPosting, score: float, matched_keywords: Seque
     if location:
         parts.append(location)
 
-    summary = (job.desc or getattr(job, "description", "") or "")[:280]
+    summary = (getattr(job, "desc", None) or getattr(job, "description", "") or "")[:280]
     matched = ", ".join(matched_keywords)
     body = "\n".join(filter(None, parts))
     extras = []
