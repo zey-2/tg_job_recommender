@@ -1,6 +1,8 @@
 """Telegram bot handlers and commands."""
 import json
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+import logging
+import random
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, BotCommand
 from telegram.ext import (
     Application, CommandHandler, CallbackQueryHandler, 
     ContextTypes, MessageHandler, filters
@@ -10,6 +12,13 @@ import config
 from database import get_db
 from adzuna_client import get_adzuna_client
 from keyword_manager import get_keyword_manager
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
 
 
 class JobBot:
@@ -81,28 +90,25 @@ class JobBot:
         existing = self.db.get_user(user.id)
         if not existing:
             self.db.create_user(user.id, user.username)
-            welcome_msg = (
-                f"👋 Welcome to Job Bot, {user.first_name}!\n\n"
-                "I'll help you find personalized job recommendations based on your preferences.\n\n"
-                "🎯 *How it works:*\n"
-                "• Use /more to get job recommendations\n"
-                "• Like 👍 or dislike 👎 jobs to train your profile\n"
-                "• I'll learn what you like and improve over time!\n\n"
-                "📝 *Available Commands:*\n"
-                "/more - Get 2-3 job recommendations\n"
-                "/search <keywords> - Search for specific jobs\n"
-                "/keywords - View your keyword profile\n"
-                "/set_time - Set notification time\n"
-                "/toggle_notifications - Turn daily digest on/off\n"
-                "/help - Show this help message"
-            )
-        else:
-            welcome_msg = (
-                f"👋 Welcome back, {user.first_name}!\n\n"
-                "Use /more to get job recommendations or /help to see all commands."
-            )
+        welcome_msg = (
+            f"👋 Welcome to Job Bot, {user.first_name}!\n\n"
+            "I'll help you find personalized job recommendations based on your preferences.\n\n"
+            "<b>How it works:</b>\n"
+            "• Use /search (keywords) to get some jobs\n"
+            "• Like 👍 or dislike 👎 each job to help refine recommendations\n"
+            "• I'll learn what you like and improve over time!\n\n"
+            "📢 <b>Notifications:</b> Daily digest notifications are enabled by default. Use /toggle_notifications to turn them off.\n\n"
+            "📝 <b>Available Commands:</b>\n"
+            "/more - Get 2-3 personalized recommendations (use multiple times)\n"
+            "/search (keywords) - Search for specific jobs\n"
+            "/keywords - View your keyword profile\n"
+            "/set_time - Set notification time\n"
+            "/toggle_notifications - Turn daily digest on/off\n"
+            "/help - Show this help message"
+        )
+
         
-        await update.message.reply_text(welcome_msg, parse_mode=ParseMode.MARKDOWN)
+        await update.message.reply_text(welcome_msg, parse_mode=ParseMode.HTML)
     
     async def help_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /help command."""
@@ -125,9 +131,11 @@ class JobBot:
     async def more_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /more command - get real-time recommendations."""
         user_id = update.effective_user.id
+        logger.info(f"[MORE] User {user_id} requested more jobs")
         
         # Ensure user exists
         if not self.db.get_user(user_id):
+            logger.warning(f"[MORE] User {user_id} not registered")
             await update.message.reply_text(
                 "Please use /start first to register!",
                 parse_mode=ParseMode.MARKDOWN
@@ -139,14 +147,34 @@ class JobBot:
         # Get user keywords
         keywords = self.db.get_user_keywords(user_id, top_k=config.TOP_K)
         keyword_list = [kw['keyword'] for kw in keywords if not kw['is_negative']]
+        logger.info(f"[MORE] User {user_id} has {len(keywords)} total keywords, {len(keyword_list)} positive: {keyword_list}")
+        
+        # Randomly select 1 keyword for search (if available)
+        if len(keyword_list) >= 1:
+            selected_keywords = random.sample(keyword_list, 1)
+        else:
+            selected_keywords = []
+        
+        logger.info(f"[MORE] Selected keywords for search: {selected_keywords}")
+        
+        # Display the keyword being used
+        if selected_keywords:
+            await update.message.reply_text(f"🔍 Searching with keyword: *{selected_keywords[0]}*", parse_mode=ParseMode.MARKDOWN)
+        else:
+            await update.message.reply_text("🔍 Searching recent jobs (no keywords available yet)", parse_mode=ParseMode.MARKDOWN)
         
         # Fetch jobs
-        if keyword_list:
-            jobs = self.adzuna.search_by_keywords(keyword_list, limit=50)
+        if selected_keywords:
+            logger.info(f"[MORE] Searching by keywords: {selected_keywords}")
+            jobs = self.adzuna.search_by_keywords(selected_keywords, limit=50)
         else:
+            logger.info(f"[MORE] No keywords found, fetching recent jobs")
             jobs = self.adzuna.get_recent_jobs(limit=50)
         
+        logger.info(f"[MORE] Fetched {len(jobs)} jobs from Adzuna")
+        
         if not jobs:
+            logger.warning(f"[MORE] No jobs returned from Adzuna for user {user_id}")
             await update.message.reply_text(
                 "😕 No jobs found right now. Try again later or use /search to find specific jobs.",
                 parse_mode=ParseMode.MARKDOWN
@@ -154,9 +182,12 @@ class JobBot:
             return
         
         # Rank jobs
+        logger.info(f"[MORE] Ranking {len(jobs)} jobs for user {user_id}")
         ranked = self.keyword_manager.rank_jobs(jobs, user_id, exclude_recent=True)
+        logger.info(f"[MORE] After ranking and filtering, {len(ranked)} jobs remain")
         
         if not ranked:
+            logger.warning(f"[MORE] No jobs left after ranking/filtering for user {user_id}")
             await update.message.reply_text(
                 "You've seen all recent matches! Try /search or check back later.",
                 parse_mode=ParseMode.MARKDOWN
@@ -165,11 +196,14 @@ class JobBot:
         
         # Send top 2-3 jobs
         count = min(len(ranked), config.REALTIME_MAX)
+        logger.info(f"[MORE] Sending {count} jobs to user {user_id}")
         
-        for job, score, matched in ranked[:count]:
+        for idx, (job, score, matched) in enumerate(ranked[:count], 1):
             # Cache job in database
             self.db.upsert_job(job)
             job_id = job.get('id')
+            
+            logger.info(f"[MORE] Job {idx}/{count}: {job_id} - {job.get('title')} - Score: {score:.2f}")
             
             # Log as shown
             self.db.log_interaction(user_id, job_id, 'shown')
@@ -310,6 +344,16 @@ class JobBot:
         if action not in ['like', 'dislike']:
             return
         
+        # Show processing message
+        processing_text = "⏳ Processing your feedback..."
+        try:
+            await query.edit_message_text(
+                processing_text,
+                parse_mode=ParseMode.MARKDOWN
+            )
+        except Exception as e:
+            logger.warning(f"Could not show processing message: {e}")
+        
         # Get job from database
         job = self.db.get_job(job_id)
         if not job:
@@ -343,16 +387,30 @@ class JobBot:
     
     def create_application(self) -> Application:
         """Create and configure the bot application."""
-        application = Application.builder().token(config.TELEGRAM_BOT_TOKEN).build()
+        
+        async def set_commands(application):
+            """Set bot commands after initialization."""
+            commands = [
+                BotCommand("start", "Start the bot and get welcome message"),
+                BotCommand("more", "Get personalized job recommendations"),
+                BotCommand("search", "Search for jobs with specific keywords"),
+                BotCommand("keywords", "View your keyword profile"),
+                BotCommand("set_time", "Set daily notification time"),
+                BotCommand("toggle_notifications", "Turn daily digest on/off"),
+                BotCommand("help", "Show help and available commands"),
+            ]
+            await application.bot.set_my_commands(commands)
+        
+        application = Application.builder().token(config.TELEGRAM_BOT_TOKEN).post_init(set_commands).build()
         
         # Command handlers
         application.add_handler(CommandHandler("start", self.start_command))
-        application.add_handler(CommandHandler("help", self.help_command))
         application.add_handler(CommandHandler("more", self.more_command))
         application.add_handler(CommandHandler("search", self.search_command))
         application.add_handler(CommandHandler("keywords", self.keywords_command))
         application.add_handler(CommandHandler("set_time", self.set_time_command))
         application.add_handler(CommandHandler("toggle_notifications", self.toggle_notifications_command))
+        application.add_handler(CommandHandler("help", self.help_command))
         
         # Callback handler for inline buttons
         application.add_handler(CallbackQueryHandler(self.button_callback))

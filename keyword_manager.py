@@ -1,10 +1,14 @@
 """Keyword management and job scoring logic."""
 import re
+import logging
 from typing import List, Dict, Tuple
 from collections import Counter
 import config
 from database import get_db
 from llm_service import get_llm_service
+
+# Configure logging
+logger = logging.getLogger(__name__)
 
 
 class KeywordManager:
@@ -36,6 +40,8 @@ class KeywordManager:
         Returns:
             Tuple of (score, matched_keywords)
         """
+        job_id = job.get('id', 'N/A')
+        
         # Tokenize job content
         title_tokens = self.tokenize(job.get('title', ''))
         desc_tokens = self.tokenize(job.get('description', ''))
@@ -65,30 +71,39 @@ class KeywordManager:
                 
                 # Hard negative filter - immediately reject
                 if is_negative and weight < config.NEGATIVE_PROMOTE_AT:
+                    logger.debug(f"[SCORE] Job {job_id} hard rejected due to negative keyword '{keyword}' (weight: {weight})")
                     return -1000.0, [keyword]
                 
                 # Soft negative - subtract weight
                 if is_negative:
                     score -= abs(weight)
                     negative_match = True
+                    logger.debug(f"[SCORE] Job {job_id} soft negative '{keyword}' (weight: {weight}, new score: {score})")
                 else:
                     # Positive match - add weight
                     # Cap contribution to avoid single keyword dominance
                     contribution = min(weight, 5.0)
                     score += contribution
+                    logger.debug(f"[SCORE] Job {job_id} positive match '{keyword}' (weight: {weight}, contribution: {contribution}, new score: {score})")
         
         # Penalty if only negative matches
         if negative_match and score <= 0:
             score -= 5.0
+            logger.debug(f"[SCORE] Job {job_id} additional penalty for only negative matches (score: {score})")
         
         # Small boost for title matches (title is more important)
         title_match_bonus = sum(
             0.5 for kw_data in user_keywords 
             if kw_data['keyword'] in title_tokens and not kw_data['is_negative']
         )
-        score += title_match_bonus
+        if title_match_bonus > 0:
+            score += title_match_bonus
+            logger.debug(f"[SCORE] Job {job_id} title match bonus: {title_match_bonus} (final score: {score})")
         
-        return max(score, 0.0), matched_keywords
+        final_score = max(score, 0.0)
+        logger.debug(f"[SCORE] Job {job_id} final score: {final_score}, matched: {matched_keywords}")
+        
+        return final_score, matched_keywords
     
     def rank_jobs(self, jobs: List[Dict], user_id: int, 
                  exclude_recent: bool = True) -> List[Tuple[Dict, float, List[str]]]:
@@ -103,37 +118,59 @@ class KeywordManager:
         Returns:
             List of (job, score, matched_keywords) tuples, sorted by score
         """
+        logger.info(f"[RANK] Starting to rank {len(jobs)} jobs for user {user_id}")
+        
         # Get user keywords
         user_keywords = self.db.get_user_keywords(user_id)
+        logger.info(f"[RANK] User {user_id} has {len(user_keywords)} keywords")
         
         if not user_keywords:
             # No keywords yet - return jobs with neutral scoring
+            logger.info(f"[RANK] No keywords for user {user_id}, returning all jobs with neutral score")
             return [(job, 1.0, []) for job in jobs]
         
         # Get recently shown jobs if needed
         recent_job_ids = set()
         if exclude_recent:
             recent_job_ids = set(self.db.get_recently_shown_jobs(user_id, days=7))
+            logger.info(f"[RANK] User {user_id} has {len(recent_job_ids)} recently shown jobs (last 7 days)")
+            if recent_job_ids:
+                logger.debug(f"[RANK] Recent job IDs: {list(recent_job_ids)[:5]}... (showing first 5)")
         
         # Score and filter jobs
         scored_jobs = []
+        excluded_count = 0
+        negative_score_count = 0
+        
         for job in jobs:
             job_id = job.get('id')
+            job_title = job.get('title', 'N/A')
             
             # Skip recently shown jobs
             if job_id in recent_job_ids:
+                excluded_count += 1
+                logger.debug(f"[RANK] Excluding recently shown job: {job_id} - {job_title}")
                 continue
             
             score, matched = self.score_job(job, user_keywords)
             
             # Skip jobs with negative scores (hard negatives)
             if score < 0:
+                negative_score_count += 1
+                logger.debug(f"[RANK] Excluding job with negative score: {job_id} - {job_title} (score: {score:.2f}, matched: {matched})")
                 continue
             
+            logger.debug(f"[RANK] Job {job_id} - {job_title} scored {score:.2f} (matched: {matched})")
             scored_jobs.append((job, score, matched))
+        
+        logger.info(f"[RANK] Results for user {user_id}: {len(scored_jobs)} jobs passed, "
+                   f"{excluded_count} excluded (recent), {negative_score_count} excluded (negative score)")
         
         # Sort by score descending
         scored_jobs.sort(key=lambda x: x[1], reverse=True)
+        
+        if scored_jobs:
+            logger.info(f"[RANK] Top 5 scores: {[(job.get('id'), score) for job, score, _ in scored_jobs[:5]]}")
         
         return scored_jobs
     
@@ -270,13 +307,15 @@ class KeywordManager:
         if positive:
             lines.append("✅ *Positive:*")
             for kw in positive:
-                emoji = "🔥" if kw['weight'] > 2.0 else "⭐"
-                lines.append(f"{emoji} {kw['keyword']} (weight: {kw['weight']:.2f})")
+                # Use star rating instead of exact weight
+                stars = min(int(kw['weight'] / 0.5), 5)  # Max 5 stars
+                star_display = "⭐" * max(stars, 1)
+                lines.append(f"{star_display} {kw['keyword']}")
         
         if negative:
             lines.append("\n❌ *Negative:*")
             for kw in negative:
-                lines.append(f"🚫 {kw['keyword']} (weight: {kw['weight']:.2f})")
+                lines.append(f"🚫 {kw['keyword']}")
         
         return "\n".join(lines)
 

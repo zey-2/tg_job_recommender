@@ -2,15 +2,28 @@
 import asyncio
 import sys
 import platform
+import logging
 from telegram import Update
 from telegram.ext import Application
 from bot import get_bot
 from scheduler import run_digest
 import config
 
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.StreamHandler(sys.stdout),
+        logging.FileHandler('bot.log', encoding='utf-8')
+    ]
+)
+logger = logging.getLogger(__name__)
+
 
 def run_polling():
     """Run bot in polling mode (for development)."""
+    logger.info("Starting bot in polling mode...")
     print("Starting bot in polling mode...")
     
     # Create application
@@ -18,6 +31,7 @@ def run_polling():
     application = job_bot.create_application()
     
     # Start polling
+    logger.info("Bot is running. Press Ctrl+C to stop.")
     print("Bot is running. Press Ctrl+C to stop.")
     application.run_polling(allowed_updates=Update.ALL_TYPES)
 
@@ -40,8 +54,6 @@ def run_webhook(port: int = 8080):
         url_path="/webhook",
         webhook_url=webhook_url
     )
-
-
 def run_digest_job():
     """Run the daily digest job (sync wrapper)."""
     asyncio.run(run_digest())

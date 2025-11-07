@@ -1,7 +1,11 @@
 """Adzuna API client for job search."""
 import requests
+import logging
 from typing import List, Dict, Optional
 import config
+
+# Configure logging
+logger = logging.getLogger(__name__)
 
 
 class AdzunaClient:
@@ -63,13 +67,18 @@ class AdzunaClient:
         # Build URL
         url = f"{self.BASE_URL}/{page}"
         
+        logger.info(f"[ADZUNA] Requesting jobs from {url}")
+        logger.debug(f"[ADZUNA] Params: {params}")
+        
         try:
             response = requests.get(url, params=params, timeout=10)
             response.raise_for_status()
             data = response.json()
-            return data.get("results", [])
+            results = data.get("results", [])
+            logger.info(f"[ADZUNA] Received {len(results)} jobs from API (count in response: {data.get('count', 'N/A')})")
+            return results
         except requests.exceptions.RequestException as e:
-            print(f"Error fetching jobs from Adzuna: {e}")
+            logger.error(f"[ADZUNA] Error fetching jobs: {e}")
             return []
     
     def search_by_keywords(self, keywords: List[str], limit: int = 25) -> List[Dict]:
@@ -83,6 +92,7 @@ class AdzunaClient:
         Returns:
             List of job dictionaries
         """
+        logger.info(f"[ADZUNA] search_by_keywords called with {len(keywords)} keywords: {keywords}, limit={limit}")
         return self.search_jobs(
             keywords=keywords,
             per_page=limit,
@@ -100,6 +110,7 @@ class AdzunaClient:
         Returns:
             List of job dictionaries
         """
+        logger.info(f"[ADZUNA] get_recent_jobs called with limit={limit}, max_days_old={max_days_old}")
         return self.search_jobs(
             per_page=limit,
             max_days_old=max_days_old,
@@ -129,13 +140,18 @@ class AdzunaClient:
         
         url = f"{self.BASE_URL}/1"
         
+        logger.info(f"[ADZUNA] search_custom called with query='{query}', limit={limit}")
+        logger.debug(f"[ADZUNA] Request URL: {url}, params: {params}")
+        
         try:
             response = requests.get(url, params=params, timeout=10)
             response.raise_for_status()
             data = response.json()
-            return data.get("results", [])
+            results = data.get("results", [])
+            logger.info(f"[ADZUNA] Received {len(results)} jobs from custom search")
+            return results
         except requests.exceptions.RequestException as e:
-            print(f"Error fetching jobs from Adzuna: {e}")
+            logger.error(f"[ADZUNA] Error in custom search: {e}")
             return []
 
 
