@@ -79,7 +79,7 @@ tg_job_recommender/
 
 1. **User Interaction**: User likes/dislikes jobs via Telegram
 2. **LLM Analysis**: OpenAI extracts keywords from job details
-3. **Profile Update**: Keywords are weighted based on feedback
+3. **Profile Update**: Keywords that appeared in the job are immediately reinforced/penalized, then the LLM suggests new terms
 4. **Job Scoring**: Future jobs are ranked by keyword match
 5. **Adaptive Learning**: Weights decay over time to stay current
 
@@ -136,6 +136,8 @@ gcloud scheduler jobs create http digest-job \
 | `DECAY` | Weight decay factor | 0.98 |
 | `LIKE_BOOST` | Weight increase on like | 1.0 |
 | `DISLIKE_PENALTY` | Weight decrease on dislike | -1.0 |
+| `MAX_NEW_POSITIVE_PER_FEEDBACK` | New positive keywords allowed per feedback once you already have 8 | 3 |
+| `MAX_NEW_NEGATIVE_PER_FEEDBACK` | New negative keywords allowed per feedback cycle | 2 |
 
 ## License
 
