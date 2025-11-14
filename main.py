@@ -1,5 +1,6 @@
 """Main entry point for the Telegram Job Bot."""
 import asyncio
+import os
 import sys
 import platform
 import logging
@@ -44,8 +45,10 @@ def run_webhook(port: int = 8080):
     job_bot = get_bot()
     application = job_bot.create_application()
     
-    # Setup webhook (URL should be set in Cloud Run environment)
-    webhook_url = f"https://your-cloud-run-url/webhook"
+    base_url = (config.WEBHOOK_BASE_URL or os.getenv("RENDER_EXTERNAL_URL") or "").strip()
+    if not base_url:
+        raise ValueError("WEBHOOK_BASE_URL or RENDER_EXTERNAL_URL must be set for webhook mode")
+    webhook_url = base_url.rstrip('/') + "/webhook"
     
     # Start webhook server
     application.run_webhook(

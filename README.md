@@ -138,6 +138,7 @@ gcloud scheduler jobs create http digest-job \
 | `DISLIKE_PENALTY` | Weight decrease on dislike | -1.0 |
 | `MAX_NEW_POSITIVE_PER_FEEDBACK` | New positive keywords allowed per feedback once you already have 8 | 3 |
 | `MAX_NEW_NEGATIVE_PER_FEEDBACK` | New negative keywords allowed per feedback cycle | 2 |
+| `WEBHOOK_BASE_URL` | Fully-qualified base URL Render/Cloud Run should expose (falls back to `RENDER_EXTERNAL_URL`) | Required for webhook mode |
 
 ## License
 

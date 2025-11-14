@@ -164,6 +164,7 @@ Edit these in `.env` to adjust behavior:
 | `DECAY` | Weight decay per update | 0.98 |
 | `MAX_NEW_POSITIVE_PER_FEEDBACK` | New positive keywords allowed once profile has 8 entries | 3 |
 | `MAX_NEW_NEGATIVE_PER_FEEDBACK` | New negative keywords allowed per feedback | 2 |
+| `WEBHOOK_BASE_URL` | Public base URL for webhook deployments (else falls back to `RENDER_EXTERNAL_URL`) | Required for webhook mode |
 
 ## 📊 Database Schema
 
