@@ -297,11 +297,11 @@ class JobBot:
         await update.message.reply_text(
             "⏰ *Set Your Notification Time*\n\n"
             "Please send me your preferred notification time in *HH:MM* format.\n"
-            "Time must be in 30-minute slots (e.g., 09:00, 09:30, 10:00)\n\n"
+            "Any minute value is allowed (e.g., 09:00, 09:17, 10:45)\n\n"
             "Examples:\n"
             "• `09:00`\n"
-            "• `18:30`\n"
-            "• `21:00`\n\n"
+            "• `18:05`\n"
+            "• `21:59`\n\n"
             "Send /cancel to cancel.",
             parse_mode=ParseMode.MARKDOWN
         )
@@ -315,12 +315,12 @@ class JobBot:
         # Validate format
         try:
             hour, minute = map(int, time_str.split(':'))
-            if not (0 <= hour <= 23 and minute in [0, 30]):
+            if not (0 <= hour <= 23 and 0 <= minute <= 59):
                 raise ValueError()
         except:
             await update.message.reply_text(
-                "❌ Invalid time format. Please use HH:MM with 30-minute slots.\n\n"
-                "Examples: `09:00`, `09:30`, `18:00`\n\n"
+                "❌ Invalid time format. Please use HH:MM (00-23 for hours, 00-59 for minutes).\n\n"
+                "Examples: `09:00`, `09:17`, `18:45`\n\n"
                 "Send /cancel to cancel.",
                 parse_mode=ParseMode.MARKDOWN
             )

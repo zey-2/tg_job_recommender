@@ -3,6 +3,7 @@ import sqlite3
 import json
 from datetime import datetime, timedelta
 from typing import List, Dict, Optional, Tuple
+from pytz import timezone
 import config
 
 
@@ -163,12 +164,10 @@ class Database:
     
     def _calculate_next_digest(self, time_str: str) -> str:
         """Calculate next digest datetime based on notification time."""
-        from pytz import timezone
-        
         now = datetime.now(timezone(config.DEFAULT_TIMEZONE))
         hour, minute = map(int, time_str.split(':'))
         
-        # Set to today at notification time
+        # Set to today at notification time (localized)
         next_digest = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
         
         # If time has passed, move to tomorrow
@@ -180,7 +179,7 @@ class Database:
     def get_users_for_digest(self) -> List[Dict]:
         """Get users who are due for daily digest."""
         cursor = self.conn.cursor()
-        now = datetime.now().isoformat()
+        now = datetime.now(timezone(config.DEFAULT_TIMEZONE)).isoformat()
         cursor.execute("""
             SELECT * FROM users 
             WHERE notifications_enabled = 1 
