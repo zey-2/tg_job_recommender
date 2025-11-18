@@ -1,5 +1,7 @@
 """Scheduler for daily digest notifications."""
 import asyncio
+import logging
+import random
 from typing import List, Dict
 from telegram import Bot
 from telegram.constants import ParseMode
@@ -8,6 +10,8 @@ from database import get_db
 from adzuna_client import get_adzuna_client
 from keyword_manager import get_keyword_manager
 from bot import get_bot
+
+logger = logging.getLogger(__name__)
 
 
 class DigestScheduler:
@@ -28,12 +32,24 @@ class DigestScheduler:
             # Get user keywords
             keywords = self.db.get_user_keywords(user_id, top_k=config.TOP_K)
             keyword_list = [kw['keyword'] for kw in keywords if not kw['is_negative']]
+
+            # Randomly select 1 keyword for search (if available)
+            if len(keyword_list) >= 1:
+                selected_keywords = random.sample(keyword_list, 1)
+            else:
+                selected_keywords = []
+
+            # Log / print keywords used for this user's digest (helpful for debugging)
+            logger.info(f"[DIGEST] User {user_id} has {len(keyword_list)} positive keywords")
+            logger.info(f"[DIGEST] User {user_id} selected keyword for search: {selected_keywords}")
+            print(f"[DIGEST] User {user_id} has {len(keyword_list)} positive keywords: {keyword_list}")
+            print(f"[DIGEST] User {user_id} selected keyword for search: {selected_keywords}")
             
             # Fetch jobs
-            if keyword_list:
-                jobs = self.adzuna.search_by_keywords(keyword_list, limit=50)
+            if selected_keywords:
+                jobs = self.adzuna.search_by_keywords(selected_keywords, limit=5)
             else:
-                jobs = self.adzuna.get_recent_jobs(limit=50)
+                jobs = self.adzuna.get_recent_jobs(limit=5)
             
             if not jobs:
                 # No jobs found - skip for now
@@ -48,8 +64,7 @@ class DigestScheduler:
             
             # Send header
             header = (
-                "📬 *Your Daily Job Digest*\n\n"
-                f"Found {len(ranked)} new matches for you!\n"
+                "📬 *Your Daily Job Digest*\n"
                 "Here are your top 5:\n"
             )
             await bot.send_message(
