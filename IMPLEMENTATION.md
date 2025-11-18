@@ -132,7 +132,7 @@ In Telegram:
 1. **User sees job** → Bot shows job with 👍/👎 buttons
 2. **User reacts** → Interaction logged in database
 3. **LLM analyzes** → OpenAI extracts keywords from job
-4. **Keywords updated** → Weights adjusted based on feedback
+4. **Keywords updated** → Matched keywords are immediately reinforced or penalized, then LLM adjustments are merged
 5. **Profile refined** → Top 8 keywords maintained
 6. **Better matches** → Future jobs scored higher
 
@@ -162,6 +162,9 @@ Edit these in `.env` to adjust behavior:
 | `LIKE_BOOST` | Weight increase on like | 1.0 |
 | `DISLIKE_PENALTY` | Weight decrease on dislike | -1.0 |
 | `DECAY` | Weight decay per update | 0.98 |
+| `MAX_NEW_POSITIVE_PER_FEEDBACK` | New positive keywords allowed once profile has 8 entries | 3 |
+| `MAX_NEW_NEGATIVE_PER_FEEDBACK` | New negative keywords allowed per feedback | 2 |
+| `WEBHOOK_BASE_URL` | Public base URL for webhook deployments (else falls back to `RENDER_EXTERNAL_URL`) | Required for webhook mode |
 
 ## 📊 Database Schema
 

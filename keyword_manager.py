@@ -185,19 +185,48 @@ class KeywordManager:
         """
         # Get current keywords
         current_keywords = self.db.get_user_keywords(user_id)
+        new_positive_added = 0
+        new_negative_added = 0
         
         # Extract job info
-        job_title = job.get('title', '')
+        job_title = str(job.get('title', '') or '')
         company = job.get('company', {})
         if isinstance(company, dict):
             company = company.get('display_name', '')
-        description = job.get('description', '')[:500]  # Truncate
+        company = str(company or '')
+        full_description = str(job.get('description', '') or '')
+        description_preview = full_description[:500]
+        
+        job_tokens = set(self.tokenize(job_title))
+        job_tokens.update(self.tokenize(company))
+        job_tokens.update(self.tokenize(full_description))
+        job_text_block = f"{job_title} {company} {full_description}".lower()
+        
+        if action in ('like', 'dislike') and job_tokens:
+            direct_delta = config.LIKE_BOOST if action == 'like' else config.DISLIKE_PENALTY
+            if direct_delta != 0:
+                matched_existing = []
+                for kw in current_keywords:
+                    keyword_text = kw['keyword']
+                    match = keyword_text in job_tokens
+                    if not match and ' ' in keyword_text:
+                        pattern = r'\b{}\b'.format(re.escape(keyword_text))
+                        if re.search(pattern, job_text_block):
+                            match = True
+                    if match:
+                        matched_existing.append(kw)
+                for kw in matched_existing:
+                    self.db.update_keyword_weight(user_id, kw['keyword'], direct_delta)
+                    kw['weight'] += direct_delta
+                    kw['is_negative'] = kw['weight'] < config.NEGATIVE_PROMOTE_AT
+        
+        positive_count = sum(1 for kw in current_keywords if not kw['is_negative'])
         
         # Get LLM keyword suggestions
         llm_suggestions = self.llm.expand_keywords(
             job_title=job_title,
             company=str(company),
-            description=description,
+            description=description_preview,
             current_keywords=current_keywords,
             user_reaction=action
         )
@@ -225,7 +254,7 @@ class KeywordManager:
                 if action == 'like' and sentiment == 'positive':
                     delta = base_delta
                 elif action == 'dislike' and sentiment == 'negative':
-                    delta = abs(base_delta)  # Reinforce negative
+                    delta = base_delta if base_delta <= 0 else -abs(base_delta)
                 elif action == 'like' and sentiment == 'negative':
                     delta = -abs(base_delta) * 0.5  # Conflicting signal
                 elif action == 'dislike' and sentiment == 'positive':
@@ -243,6 +272,10 @@ class KeywordManager:
                     is_negative=is_negative,
                     rationale=rationale
                 )
+                
+                # Keep local copy in sync for subsequent iterations
+                existing['weight'] = new_weight
+                existing['is_negative'] = is_negative
             else:
                 # New keyword - seed with appropriate weight
                 if action == 'like' and sentiment == 'positive':
@@ -255,6 +288,27 @@ class KeywordManager:
                     initial_weight = 0.5 if sentiment == 'positive' else -0.5
                     is_negative = sentiment == 'negative'
                 
+                if not is_negative:
+                    if positive_count >= config.TOP_K:
+                        if new_positive_added >= config.MAX_NEW_POSITIVE_PER_FEEDBACK:
+                            logger.debug(
+                                "Skipping new keyword '%s' for user %s (limit reached)",
+                                keyword,
+                                user_id
+                            )
+                            continue
+                        new_positive_added += 1
+                    positive_count += 1
+                else:
+                    if new_negative_added >= config.MAX_NEW_NEGATIVE_PER_FEEDBACK:
+                        logger.debug(
+                            "Skipping new negative keyword '%s' for user %s (limit reached)",
+                            keyword,
+                            user_id
+                        )
+                        continue
+                    new_negative_added += 1
+                
                 self.db.upsert_keyword(
                     user_id=user_id,
                     keyword=keyword,
@@ -262,6 +316,11 @@ class KeywordManager:
                     is_negative=is_negative,
                     rationale=rationale
                 )
+                current_keywords.append({
+                    'keyword': keyword,
+                    'weight': initial_weight,
+                    'is_negative': is_negative
+                })
         
         # Apply decay to all keywords
         self.db.decay_keywords(user_id, config.DECAY)
