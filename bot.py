@@ -348,12 +348,28 @@ class JobBot:
         user_id = update.effective_user.id
         
         new_state = self.db.toggle_notifications(user_id)
-        
+        # Retrieve current stored time and timezone for the user
+        user = self.db.get_user(user_id)
+        time_str = None
+        tz = config.DEFAULT_TIMEZONE
+        if user:
+            time_str = user.get('notification_time') or config.DEFAULT_NOTIFICATION_TIME
+            tz = user.get('timezone') or config.DEFAULT_TIMEZONE
+
         if new_state:
-            message = "✅ Daily digest notifications are now *ON*"
+            # Ensure next_digest_at is recalculated when enabling notifications
+            if time_str:
+                try:
+                    self.db.set_notification_time(user_id, time_str)
+                except Exception:
+                    # Best-effort; we don't want toggling to fail due to scheduling issues
+                    logger.exception("Could not update next_digest_at for user %s", user_id)
+
+            message = f"✅ Daily digest notifications are now *ON* — scheduled at *{time_str}* ({tz})"
         else:
-            message = "🔕 Daily digest notifications are now *OFF*"
-        
+            # When notifications are turned off, show the current/previous time for reference
+            message = f"🔕 Daily digest notifications are now *OFF* (previously set to *{time_str}* {tz})"
+
         await update.message.reply_text(message, parse_mode=ParseMode.MARKDOWN)
     
     async def button_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
