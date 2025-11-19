@@ -631,6 +631,35 @@ class Database:
             WHERE user_id = ? AND timestamp >= ?
         """, (user_id, cutoff))
         return [row[0] for row in cursor.fetchall()]
+
+    def clear_user_interactions(self, user_id: int):
+        """Delete all interactions for a user."""
+        cursor = self.conn.cursor()
+        cursor.execute("DELETE FROM interactions WHERE user_id = ?", (user_id,))
+        self.conn.commit()
+
+    def reset_user_profile(self, user_id: int, keep_settings: bool = True):
+        """Reset user profile by clearing keywords and interaction history.
+
+        Args:
+            user_id: The telegram user id
+            keep_settings: If True, preserve notification and prefs fields
+        """
+        cursor = self.conn.cursor()
+        # Delete user keywords
+        cursor.execute("DELETE FROM user_keywords WHERE user_id = ?", (user_id,))
+        # Delete user interactions
+        cursor.execute("DELETE FROM interactions WHERE user_id = ?", (user_id,))
+        if not keep_settings:
+            # Reset prefs_json to empty and clear notification settings
+            cursor.execute("UPDATE users SET prefs_json = ?, notifications_enabled = ?, notification_time = ?, min_salary_preference = NULL, updated_at = CURRENT_TIMESTAMP WHERE user_id = ?", (json.dumps({}), 1 if config.DEFAULT_NOTIFICATIONS else 0, config.DEFAULT_NOTIFICATION_TIME, user_id))
+        self.conn.commit()
+
+    def clear_all_negative_keywords(self):
+        """Remove negative keywords for all users (migration aide)."""
+        cursor = self.conn.cursor()
+        cursor.execute("DELETE FROM user_keywords WHERE is_negative = 1")
+        self.conn.commit()
     
     def close(self):
         """Close database connection."""

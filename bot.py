@@ -33,6 +33,11 @@ class JobBot:
         self.db = get_db()
         self.findsgjobs = get_findsgjobs_client()
         self.keyword_manager = get_keyword_manager()
+        # Clear existing negative keywords from DB on startup (migration)
+        try:
+            self.db.clear_all_negative_keywords()
+        except Exception:
+            logger.exception("Failed to clear existing negative keywords on startup")
     
     def format_job_message(self, job: dict, explanation: str = None) -> str:
         """Format job as Telegram message."""
@@ -126,7 +131,6 @@ class JobBot:
         keyboard = [
             [
                 InlineKeyboardButton("👍 Like", callback_data=f"like:{job_id}"),
-                InlineKeyboardButton("👎 Dislike", callback_data=f"dislike:{job_id}"),
             ],
             [
                 InlineKeyboardButton("🔗 View Job", url=job_url),
@@ -147,8 +151,8 @@ class JobBot:
             f"👋 Welcome to Job Bot, {user.first_name}!\n\n"
             "I'll help you find personalized job recommendations based on your preferences.\n\n"
             "<b>How it works:</b>\n"
-            "• Use /search to find specific jobs\n"
-            "• Like 👍 or dislike 👎 each job to help refine recommendations\n"
+            "• Use /search or just type keywords to find specific jobs\n"
+            "• Like 👍 each job to help refine recommendations\n"
             "• I'll learn what you like and improve over time!\n\n"
             "📢 <b>Notifications:</b> Daily digest notifications are enabled by default. Use /toggle_notifications to turn them off.\n\n"
             "• Each digest may include a short, positive encouragement message to brighten your day.\n\n"
@@ -183,7 +187,7 @@ class JobBot:
             "❓ *Other:*\n"
             "/help - Show this help message\n"
             "/start - Reset welcome message\n\n"
-            "💡 *Tip:* Like and dislike jobs to improve recommendations!"
+            "💡 *Tip:* Type keywords or use /search to find jobs. Like 👍 jobs to improve recommendations!"
         )
         await update.message.reply_text(help_text, parse_mode=ParseMode.MARKDOWN)
     
@@ -402,6 +406,12 @@ class JobBot:
             )
         
         return ConversationHandler.END
+
+    async def default_text_handler(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle default text input as a direct search query (non-command)."""
+        # Reuse search processing flow but don't prompt; treat the text as a query
+        logger.info(f"[DEFAULT] User {update.effective_user.id} sent text; treating as search query")
+        return await self.process_search_query(update, context)
     
     async def view_keywords_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /view_keywords command - show user profile."""
@@ -562,6 +572,19 @@ class JobBot:
             message = f"🔕 Daily digest notifications are now *OFF* (previously set to *{time_str}* {tz})"
 
         await update.message.reply_text(message, parse_mode=ParseMode.MARKDOWN)
+
+    async def reset_profile_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Start flow to reset user profile (keywords/interactions)."""
+        user_id = update.effective_user.id
+        kb = [
+            [InlineKeyboardButton("✅ Reset Everything", callback_data="reset:confirm:all"), InlineKeyboardButton("❌ Cancel", callback_data="reset:cancel")],
+            [InlineKeyboardButton("🔧 Reset Keywords Only", callback_data="reset:confirm:keywords"), InlineKeyboardButton("📊 Reset History Only", callback_data="reset:confirm:history")]
+        ]
+        await update.message.reply_text(
+            "⚠️ *Reset Profile*\n\nChoose what you'd like to reset:\n• Everything: keywords + history\n• Keywords only: remove manual + auto keywords\n• History only: clear interactions (shown/liked)",
+            reply_markup=InlineKeyboardMarkup(kb),
+            parse_mode=ParseMode.MARKDOWN
+        )
     
     async def button_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle inline button callbacks."""
@@ -578,6 +601,32 @@ class JobBot:
             return
 
         # Handle keyword management callbacks starting with 'km:'
+        # Reset profile callbacks
+        if data.startswith('reset:'):
+            parts = data.split(':')
+            action = parts[1] if len(parts) > 1 else None
+            reset_type = parts[2] if len(parts) > 2 else None
+            logger.info(f"[RESET] handling action {action} {reset_type} for user {user_id}")
+            if action == 'cancel':
+                await query.edit_message_text("❌ Reset cancelled.")
+                return
+            if action == 'confirm':
+                if reset_type == 'all':
+                    # clear keywords and history, keep notification settings
+                    self.db.reset_user_profile(user_id, keep_settings=True)
+                    await query.edit_message_text("✅ Profile reset complete! All keywords and history cleared.")
+                    return
+                if reset_type == 'keywords':
+                    self.db.clear_auto_keywords(user_id)
+                    self.db.clear_manual_keywords(user_id)
+                    await query.edit_message_text("✅ All keywords cleared!")
+                    return
+                if reset_type == 'history':
+                    self.db.clear_user_interactions(user_id)
+                    await query.edit_message_text("✅ Interaction history cleared!")
+                    return
+                await query.edit_message_text("❌ Unknown reset type.")
+                return
         if data.startswith('km:'):
             parts = data.split(':')
             cmd = parts[1] if len(parts) > 1 else None
@@ -717,6 +766,7 @@ class JobBot:
                 BotCommand("set_min_salary", "Set minimum monthly salary filter (SGD)"),
                 BotCommand("toggle_notifications", "Turn daily digest on/off"),
                 BotCommand("digest_now", "Receive an immediate digest (testing)"),
+                BotCommand("reset_profile", "Reset your profile (keywords/history)"),
                 BotCommand("help", "Show help and available commands"),
             ]
             await application.bot.set_my_commands(commands)
@@ -773,10 +823,13 @@ class JobBot:
         application.add_handler(CommandHandler("view_keywords", self.view_keywords_command))
         application.add_handler(CommandHandler("set_min_salary", self.set_min_salary))
         application.add_handler(CommandHandler("digest_now", self.digest_now))
+        application.add_handler(CommandHandler("reset_profile", self.reset_profile_command))
         # `add_keyword` is registered as a ConversationHandler; don't add a plain command handler here to avoid duplicate handling.
         application.add_handler(CommandHandler("keyword_management", self.keyword_management_command))
         application.add_handler(CommandHandler("toggle_notifications", self.toggle_notifications_command))
         application.add_handler(CommandHandler("help", self.help_command))
+        # Default text handler should be registered after conversation handlers so it doesn't interfere
+        application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, self.default_text_handler))
         
         # Callback handler for inline buttons
         application.add_handler(CallbackQueryHandler(self.button_callback))
