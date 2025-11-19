@@ -1,6 +1,6 @@
 """LLM service for keyword expansion using OpenAI."""
 import json
-from typing import List, Dict
+from typing import List, Dict, Optional
 from openai import OpenAI
 import config
 
@@ -18,7 +18,8 @@ class LLMKeywordService:
                        company: str,
                        description: str,
                        current_keywords: List[Dict],
-                       user_reaction: str) -> List[Dict]:
+                       user_reaction: str,
+                       skills: Optional[List[str]] = None) -> List[Dict]:
         """
         Generate keyword suggestions based on job feedback.
         
@@ -44,12 +45,17 @@ class LLMKeywordService:
         
         kw_summary = "\n".join(kw_list) if kw_list else "None yet"
         
+        skills_section = ''
+        if skills:
+            skills_section = f"\n\nThe job lists these skills: {', '.join(skills)}"
+
         prompt = f"""You are helping to build an adaptive job recommendation profile for a user.
 
 The user just {user_reaction}d this job:
 - Title: {job_title}
 - Company: {company}
 - Description preview: {desc_preview}
+{skills_section}
 
 Their current top keywords are:
 {kw_summary}
@@ -57,7 +63,7 @@ Their current top keywords are:
 Based on this {user_reaction}, suggest 8-10 keywords that should be added or reinforced in their profile. 
 For each keyword:
 - Common words that are used for searching jobs
-- Extract skills, technologies, roles, industries, or job attributes
+- Extract skills, technologies, roles, industries
 - Assign sentiment: "positive" (user wants this) or "negative" (user avoids this)
 - Provide a brief rationale
 

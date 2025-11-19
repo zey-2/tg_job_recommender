@@ -1,5 +1,6 @@
 """Database models and operations for the Telegram Job Bot."""
 import sqlite3
+import logging
 import json
 from datetime import datetime, timedelta
 from typing import List, Dict, Optional, Tuple
@@ -34,6 +35,7 @@ class Database:
                 prefs_json TEXT DEFAULT '{}',
                 notifications_enabled INTEGER DEFAULT 1,
                 notification_time TEXT DEFAULT '09:00',
+                min_salary_preference INTEGER DEFAULT NULL,
                 timezone TEXT DEFAULT 'Asia/Singapore',
                 next_digest_at TEXT,
                 created_at TEXT DEFAULT CURRENT_TIMESTAMP,
@@ -69,6 +71,22 @@ class Database:
                 url TEXT,
                 salary_min REAL,
                 salary_max REAL,
+                salary_currency TEXT,
+                salary_interval TEXT,
+                salary_display_text TEXT,
+                salary_hidden INTEGER DEFAULT 0,
+                category_json TEXT,
+                employment_type_json TEXT,
+                work_arrangement TEXT,
+                mrt_stations_json TEXT,
+                skills_json TEXT,
+                position_level TEXT,
+                experience_required TEXT,
+                education_required TEXT,
+                timing_shift_json TEXT,
+                activation_date TEXT,
+                expiration_date TEXT,
+                source TEXT DEFAULT 'findsgjobs',
                 posted_at TEXT,
                 fetched_at TEXT DEFAULT CURRENT_TIMESTAMP
             )
@@ -114,6 +132,16 @@ class Database:
             except Exception:
                 # If alter table fails, log silently and continue
                 pass
+
+        # API rate limiting table for timestamp-based windows
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS api_rate_limit (
+                api_name TEXT PRIMARY KEY,
+                window_start REAL,
+                request_count INTEGER DEFAULT 0
+            )
+        """)
+        self.conn.commit()
 
     # Daily cache helpers
     def get_daily_cache(self, cache_key: str, expected_date: str):
@@ -186,6 +214,58 @@ class Database:
             WHERE user_id = ?
         """, (json.dumps(prefs), user_id))
         self.conn.commit()
+
+    def update_user_min_salary(self, user_id: int, min_salary: int):
+        """Set user's monthly min salary preference (SGD). Use NULL to clear."""
+        cursor = self.conn.cursor()
+        cursor.execute("""
+            UPDATE users SET min_salary_preference = ?, updated_at = CURRENT_TIMESTAMP
+            WHERE user_id = ?
+        """, (min_salary, user_id))
+        self.conn.commit()
+
+    def get_user_min_salary(self, user_id: int) -> Optional[int]:
+        cursor = self.conn.cursor()
+        cursor.execute("SELECT min_salary_preference FROM users WHERE user_id = ?", (user_id,))
+        row = cursor.fetchone()
+        if row:
+            return row[0]
+        return None
+
+    def wait_for_rate_limit(self, api_name: str, max_requests: int, window_seconds: int = 60) -> int:
+        """Ensure a maximum of `max_requests` in `window_seconds` window for the given api_name.
+        Returns seconds waited (0 if no wait).
+        """
+        cursor = self.conn.cursor()
+        now = datetime.now().timestamp()
+        cursor.execute("SELECT window_start, request_count FROM api_rate_limit WHERE api_name = ?", (api_name,))
+        row = cursor.fetchone()
+        if not row:
+            cursor.execute("INSERT INTO api_rate_limit (api_name, window_start, request_count) VALUES (?, ?, 1)", (api_name, now))
+            self.conn.commit()
+            return 0
+
+        window_start, count = row
+        # window_start can be None if reset earlier
+        if window_start is None:
+            window_start = now
+
+        elapsed = now - window_start
+        if elapsed >= window_seconds:
+            # Reset window and count this request
+            cursor.execute("UPDATE api_rate_limit SET window_start = ?, request_count = 1 WHERE api_name = ?", (now, api_name))
+            self.conn.commit()
+            return 0
+
+        if count < max_requests:
+            # Increment count for this request
+            cursor.execute("UPDATE api_rate_limit SET request_count = request_count + 1 WHERE api_name = ?", (api_name,))
+            self.conn.commit()
+            return 0
+
+        # Need to wait until window resets - return wait time, do NOT sleep here
+        wait_seconds = int(window_seconds - elapsed) + 1
+        return wait_seconds
     
     def toggle_notifications(self, user_id: int) -> bool:
         """Toggle user notifications. Returns new state."""
@@ -433,10 +513,15 @@ class Database:
     def upsert_job(self, job_data: Dict):
         """Insert or update a job."""
         cursor = self.conn.cursor()
-        cursor.execute("""
+        # Ensure we have a safe title to avoid NOT NULL constraint failure
+        title_safe = job_data.get('title') or (job_data.get('job', {}) or {}).get('Title') or (job_data.get('job', {}) or {}).get('title') or 'Unknown'
+        try:
+            cursor.execute("""
             INSERT INTO jobs (job_id, title, company, location, description, 
-                            url, salary_min, salary_max, posted_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                            url, salary_min, salary_max, salary_currency, salary_interval, salary_display_text, salary_hidden,
+                            category_json, employment_type_json, work_arrangement, mrt_stations_json, skills_json,
+                            position_level, experience_required, education_required, timing_shift_json, activation_date, expiration_date, source, posted_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(job_id) 
             DO UPDATE SET 
                 title = excluded.title,
@@ -446,20 +531,59 @@ class Database:
                 url = excluded.url,
                 salary_min = excluded.salary_min,
                 salary_max = excluded.salary_max,
+                salary_currency = excluded.salary_currency,
+                salary_interval = excluded.salary_interval,
+                salary_display_text = excluded.salary_display_text,
+                salary_hidden = excluded.salary_hidden,
+                category_json = excluded.category_json,
+                employment_type_json = excluded.employment_type_json,
+                work_arrangement = excluded.work_arrangement,
+                mrt_stations_json = excluded.mrt_stations_json,
+                skills_json = excluded.skills_json,
+                position_level = excluded.position_level,
+                experience_required = excluded.experience_required,
+                education_required = excluded.education_required,
+                timing_shift_json = excluded.timing_shift_json,
+                activation_date = excluded.activation_date,
+                expiration_date = excluded.expiration_date,
+                source = excluded.source,
                 posted_at = excluded.posted_at,
                 fetched_at = CURRENT_TIMESTAMP
         """, (
-            job_data.get('id'),
-            job_data.get('title'),
-            job_data.get('company', {}).get('display_name') if isinstance(job_data.get('company'), dict) else job_data.get('company'),
-            job_data.get('location', {}).get('display_name') if isinstance(job_data.get('location'), dict) else job_data.get('location'),
+            job_data.get('id') or job_data.get('job_id') or job_data.get('job', {}).get('id') or job_data.get('job', {}).get('sid'),
+            title_safe,
+            (job_data.get('company', {}).get('display_name') if isinstance(job_data.get('company'), dict) else job_data.get('company')) or (job_data.get('company') if isinstance(job_data.get('company'), str) else None),
+            (job_data.get('location', {}).get('display_name') if isinstance(job_data.get('location'), dict) else job_data.get('location')) or (job_data.get('location') if isinstance(job_data.get('location'), str) else None),
             job_data.get('description'),
-            job_data.get('redirect_url'),
+            job_data.get('url') or job_data.get('redirect_url'),
             job_data.get('salary_min'),
             job_data.get('salary_max'),
+            job_data.get('salary_currency'),
+            job_data.get('salary_interval'),
+            job_data.get('salary_display_text'),
+            job_data.get('salary_hidden', 0),
+            job_data.get('category_json'),
+            job_data.get('employment_type_json'),
+            job_data.get('work_arrangement'),
+            job_data.get('mrt_stations_json'),
+            job_data.get('skills_json'),
+            job_data.get('position_level'),
+            job_data.get('experience_required'),
+            job_data.get('education_required'),
+            job_data.get('timing_shift_json'),
+            job_data.get('activation_date'),
+            job_data.get('expiration_date'),
+            job_data.get('source'),
             job_data.get('created')
         ))
-        self.conn.commit()
+            self.conn.commit()
+        except sqlite3.IntegrityError as e:
+            # Log and re-raise or ignore depending on policy; for now, log and skip
+            logger = logging.getLogger(__name__)
+            logger.warning("Failed to upsert job (IntegrityError): %s - job_id=%s, title=%s", e, job_data.get('id'), title_safe)
+        except Exception:
+            # Re-raise unexpected exceptions to surface them during development
+            raise
     
     def get_job(self, job_id: str) -> Optional[Dict]:
         """Get job by ID."""

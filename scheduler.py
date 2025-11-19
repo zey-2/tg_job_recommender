@@ -11,7 +11,7 @@ from telegram import Bot
 from telegram.constants import ParseMode
 import config
 from database import get_db
-from adzuna_client import get_adzuna_client
+from findsgjobs_client import get_findsgjobs_client
 from keyword_manager import get_keyword_manager
 from bot import get_bot
 from llm_service import get_llm_service
@@ -25,7 +25,7 @@ class DigestScheduler:
     def __init__(self):
         """Initialize scheduler."""
         self.db = get_db()
-        self.adzuna = get_adzuna_client()
+        self.findsgjobs = get_findsgjobs_client()
         self.keyword_manager = get_keyword_manager()
         self.job_bot = get_bot()
     
@@ -52,11 +52,19 @@ class DigestScheduler:
             print(f"[DIGEST] User {user_id} has {len(keyword_list)} positive keywords: {keyword_list}")
             print(f"[DIGEST] User {user_id} selected keyword for search: {selected_keywords}")
             
+            # Create a lightweight context to enable rate-limit messages
+            class _Ctx:
+                def __init__(self, bot, chat_id):
+                    self.bot = bot
+                    self.chat_id = chat_id
+                    self._chat_id = chat_id
+
+            ctx = _Ctx(bot, user_id)
             # Fetch jobs
             if selected_keywords:
-                jobs = self.adzuna.search_by_keywords(selected_keywords, limit=5)
+                jobs = self.findsgjobs.search_by_keywords(selected_keywords, limit=50, user_id=user_id, context=ctx)
             else:
-                jobs = self.adzuna.get_recent_jobs(limit=5)
+                jobs = self.findsgjobs.get_recent_jobs(limit=50, user_id=user_id, context=ctx)
             
             if not jobs:
                 # No jobs found - skip for now

@@ -3,6 +3,7 @@ import json
 import logging
 import random
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, BotCommand
+from bs4 import BeautifulSoup
 from telegram.ext import (
     Application, CommandHandler, CallbackQueryHandler, 
     ContextTypes, MessageHandler, filters, ConversationHandler
@@ -10,7 +11,7 @@ from telegram.ext import (
 from telegram.constants import ParseMode
 import config
 from database import get_db
-from adzuna_client import get_adzuna_client
+from findsgjobs_client import get_findsgjobs_client
 from keyword_manager import get_keyword_manager
 
 # Configure logging
@@ -30,7 +31,7 @@ class JobBot:
     def __init__(self):
         """Initialize bot."""
         self.db = get_db()
-        self.adzuna = get_adzuna_client()
+        self.findsgjobs = get_findsgjobs_client()
         self.keyword_manager = get_keyword_manager()
     
     def format_job_message(self, job: dict, explanation: str = None) -> str:
@@ -43,12 +44,15 @@ class JobBot:
         location = job.get('location', {})
         if isinstance(location, dict):
             location = location.get('display_name', 'Singapore')
-        
-        description = job.get('description', '')[:300]
-        if description:
-            description = description.replace('\n', ' ').strip()
-            if len(job.get('description', '')) > 300:
-                description += '...'
+
+        # Parse HTML description and preserve line breaks
+        raw_desc = job.get('description') or ''
+        description = ''
+        if raw_desc:
+            soup = BeautifulSoup(raw_desc, 'html.parser')
+            plain = soup.get_text(separator='\n', strip=True)
+            if plain:
+                description = (plain[:200] + '...') if len(plain) > 200 else plain
         
         # Salary info
         salary_min = job.get('salary_min')
@@ -69,18 +73,63 @@ class JobBot:
         
         if explanation:
             message += f"\n\n💡 _{explanation}_"
-        
+        # Additional details: categories, employment, MRT, skills (abbreviated)
+        # We append as a footer to the message
+        # Categories and employment types
+        categories = json.loads(job.get('category_json') or '[]')
+        employment_types = json.loads(job.get('employment_type_json') or '[]')
+        if categories:
+            message += f"\n\n📂 {', '.join(categories[:2])}"
+        if employment_types or job.get('work_arrangement'):
+            et = ', '.join(employment_types[:2]) if employment_types else ''
+            wa = f" • {job.get('work_arrangement')}" if job.get('work_arrangement') else ''
+            message += f"\n💼 {et}{wa}"
+        # MRT stations
+        mrt = json.loads(job.get('mrt_stations_json') or '[]')
+        if mrt:
+            part = ', '.join(mrt[:3])
+            if len(mrt) > 3:
+                part += f" +{len(mrt) - 3} more"
+            message += f"\n🚇 {part}"
+        # Experience/Education
+        exp = job.get('experience_required')
+        edu = job.get('education_required')
+        if exp or edu:
+            parts = []
+            if exp:
+                parts.append(f"Exp: {exp}")
+            if edu:
+                parts.append(f"Edu: {edu}")
+            message += f"\n📋 {' • '.join(parts)}"
+        # Skills
+        skills = json.loads(job.get('skills_json') or '[]')
+        if skills:
+            s_text = ', '.join(skills[:5])
+            if len(skills) > 5:
+                s_text += f" +{len(skills)-5} more"
+            message += f"\n🔧 {s_text}"
         return message
     
     def create_job_keyboard(self, job_id: str) -> InlineKeyboardMarkup:
         """Create inline keyboard for job."""
+        # Prefer stored 'url' in DB if available
+        job_url = None
+        try:
+            j = self.db.get_job(job_id)
+            if j and j.get('url'):
+                job_url = j.get('url')
+        except Exception:
+            job_url = None
+        if not job_url:
+            job_url = f"https://www.findsgjobs.com/job/{job_id}"
+
         keyboard = [
             [
                 InlineKeyboardButton("👍 Like", callback_data=f"like:{job_id}"),
                 InlineKeyboardButton("👎 Dislike", callback_data=f"dislike:{job_id}"),
             ],
             [
-                InlineKeyboardButton("🔗 View Job", url=f"https://www.adzuna.sg/details/{job_id}"),
+                InlineKeyboardButton("🔗 View Job", url=job_url),
             ]
         ]
         return InlineKeyboardMarkup(keyboard)
@@ -176,15 +225,15 @@ class JobBot:
         # Fetch jobs
         if selected_keywords:
             logger.info(f"[MORE] Searching by keywords: {selected_keywords}")
-            jobs = self.adzuna.search_by_keywords(selected_keywords, limit=50)
+            jobs = self.findsgjobs.search_by_keywords(selected_keywords, limit=50, user_id=user_id, context=context)
         else:
             logger.info(f"[MORE] No keywords found, fetching recent jobs")
-            jobs = self.adzuna.get_recent_jobs(limit=50)
+            jobs = self.findsgjobs.get_recent_jobs(limit=50, user_id=user_id, context=context)
         
-        logger.info(f"[MORE] Fetched {len(jobs)} jobs from Adzuna")
+        logger.info(f"[MORE] Fetched {len(jobs)} jobs from FindSGJobs")
         
         if not jobs:
-            logger.warning(f"[MORE] No jobs returned from Adzuna for user {user_id}")
+            logger.warning(f"[MORE] No jobs returned from FindSGJobs for user {user_id}")
             await update.message.reply_text(
                 "😕 No jobs found right now. Try again later or use /search to find specific jobs.",
                 parse_mode=ParseMode.MARKDOWN
@@ -231,14 +280,63 @@ class JobBot:
                 reply_markup=keyboard,
                 parse_mode=ParseMode.MARKDOWN
             )
+
+    async def digest_now(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Send a one-off digest to the calling user for testing."""
+        user_id = update.effective_user.id
+        logger.info(f"[DIGEST_NOW] User {user_id} requested an immediate digest")
+
+        # Ensure user exists
+        if not self.db.get_user(user_id):
+            await update.message.reply_text("Please use /start first to register!", parse_mode=ParseMode.MARKDOWN)
+            return
+
+        # Reuse the logic from more_command but show DAILY_COUNT jobs
+        keywords = self.db.get_user_keywords(user_id, top_k=config.TOP_K)
+        keyword_list = [kw['keyword'] for kw in keywords if not kw['is_negative']]
+
+        if len(keyword_list) >= 1:
+            selected_keywords = random.sample(keyword_list, 1)
+        else:
+            selected_keywords = []
+
+        # Fetch jobs with user's min salary preference
+        if selected_keywords:
+            jobs = self.findsgjobs.search_by_keywords(selected_keywords, limit=50, user_id=user_id, context=context)
+        else:
+            jobs = self.findsgjobs.get_recent_jobs(limit=50, user_id=user_id, context=context)
+
+        ranked = self.keyword_manager.rank_jobs(jobs, user_id, exclude_recent=True)
+        if not ranked:
+            await update.message.reply_text("No new jobs found at the moment. Try again later.")
+            return
+
+        header = "📬 *Your Immediate Job Digest*\nHere are your top matches:\n"
+        await update.message.reply_text(header, parse_mode=ParseMode.MARKDOWN)
+
+        count = min(len(ranked), config.DAILY_COUNT)
+        for job, score, matched in ranked[:count]:
+            try:
+                self.db.upsert_job(job)
+            except Exception as e:
+                logger.warning(f"Failed to upsert job {job.get('id')}: {e}")
+            job_id = job.get('id')
+            self.db.log_interaction(user_id, job_id, 'shown')
+            explanation = f"Matched: {', '.join(matched[:3])}" if matched else None
+            message = self.format_job_message(job, explanation)
+            keyboard = self.create_job_keyboard(job_id)
+            try:
+                await update.message.reply_text(message, reply_markup=keyboard, parse_mode=ParseMode.MARKDOWN)
+            except Exception as e:
+                logger.warning(f"Failed to send digest message to user {user_id}: {e}")
     
     async def search_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /search command - start search conversation."""
         await update.message.reply_text(
             "🔍 *Search for Jobs*\n\n"
             "Please send me the keywords you want to search for.\n\n"
-            "Example: `data analyst python`\n"
-            "Example: `software engineer java`\n\n"
+            "Example: `pastry baker`\n"
+            "Example: `food delivery`\n\n"
             "Send /cancel to cancel the search.",
             parse_mode=ParseMode.MARKDOWN
         )
@@ -259,7 +357,7 @@ class JobBot:
         await update.message.reply_text(f"🔍 Searching for: *{query}*...", parse_mode=ParseMode.MARKDOWN)
         
         # Search jobs
-        jobs = self.adzuna.search_custom(query, limit=25)
+        jobs = self.findsgjobs.search_custom(query, limit=25, user_id=user_id, context=context)
         
         if not jobs:
             await update.message.reply_text(
@@ -273,7 +371,11 @@ class JobBot:
         
         for job in jobs[:count]:
             # Cache job
-            self.db.upsert_job(job)
+            try:
+                self.db.upsert_job(job)
+            except Exception as e:
+                logger.warning(f"Failed to upsert job {job.get('id')}: {e}")
+                # Continue and still attempt to send the job
             job_id = job.get('id')
             
             # Log interaction
@@ -361,6 +463,30 @@ class JobBot:
             parse_mode=ParseMode.MARKDOWN
         )
         return WAITING_FOR_TIME
+
+    async def set_min_salary(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle /set_min_salary <amount> command to store user preference (monthly SGD). Use 0 to clear."""
+        user_id = update.effective_user.id
+        args = context.args
+        if not args:
+            await update.message.reply_text("Usage: /set_min_salary <amount>\nExample: /set_min_salary 3000 (SGD monthly). Use 0 to clear.")
+            return
+        try:
+            amount = int(args[0])
+            if amount < 0:
+                raise ValueError()
+        except Exception:
+            await update.message.reply_text("❌ Invalid amount. Please provide a positive integer (SGD) or 0 to clear.")
+            return
+
+        if amount == 0:
+            self.db.update_user_min_salary(user_id, None)
+            await update.message.reply_text("✅ Monthly minimum salary filter cleared.")
+            return
+
+        # Valid positive integer
+        self.db.update_user_min_salary(user_id, amount)
+        await update.message.reply_text(f"✅ Minimum monthly salary filter set to ${amount} SGD.")
     
     async def process_time_input(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Process the time input from user."""
@@ -430,7 +556,11 @@ class JobBot:
     async def button_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle inline button callbacks."""
         query = update.callback_query
-        await query.answer()
+        try:
+            await query.answer()
+        except Exception as e:
+            logger.warning(f"Failed to answer callback query (possible timeout): {e}")
+            # Continue; user may still see UI update eventually
         
         user_id = update.effective_user.id
         data = query.data
@@ -574,7 +704,9 @@ class JobBot:
                 BotCommand("add_keyword", "Add a manual keyword to your profile"),
                 BotCommand("keyword_management", "Manage and remove keywords"),
                 BotCommand("set_time", "Set daily notification time"),
+                BotCommand("set_min_salary", "Set minimum monthly salary filter (SGD)"),
                 BotCommand("toggle_notifications", "Turn daily digest on/off"),
+                BotCommand("digest_now", "Receive an immediate digest (testing)"),
                 BotCommand("help", "Show help and available commands"),
             ]
             await application.bot.set_my_commands(commands)
@@ -629,6 +761,8 @@ class JobBot:
         application.add_handler(CommandHandler("start", self.start_command))
         application.add_handler(CommandHandler("more", self.more_command))
         application.add_handler(CommandHandler("view_keywords", self.view_keywords_command))
+        application.add_handler(CommandHandler("set_min_salary", self.set_min_salary))
+        application.add_handler(CommandHandler("digest_now", self.digest_now))
         # `add_keyword` is registered as a ConversationHandler; don't add a plain command handler here to avoid duplicate handling.
         application.add_handler(CommandHandler("keyword_management", self.keyword_management_command))
         application.add_handler(CommandHandler("toggle_notifications", self.toggle_notifications_command))

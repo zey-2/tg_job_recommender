@@ -1,5 +1,6 @@
 """Keyword management and job scoring logic."""
 import re
+import json
 import logging
 from typing import List, Dict, Tuple
 from collections import Counter
@@ -50,9 +51,36 @@ class KeywordManager:
             if isinstance(job.get('company'), dict) 
             else str(job.get('company', ''))
         )
+        # Parse skills, categories, MRT stations if available and add tokens
+        skills = []
+        try:
+            skills = json.loads(job.get('skills_json') or '[]')
+        except Exception:
+            skills = []
+        skill_tokens = []
+        for s in skills:
+            skill_tokens.extend(self.tokenize(s))
+
+        categories = []
+        try:
+            categories = json.loads(job.get('category_json') or '[]')
+        except Exception:
+            categories = []
+        cat_tokens = []
+        for c in categories:
+            cat_tokens.extend(self.tokenize(c))
+
+        mrt = []
+        try:
+            mrt = json.loads(job.get('mrt_stations_json') or '[]')
+        except Exception:
+            mrt = []
+        mrt_tokens = []
+        for m in mrt:
+            mrt_tokens.extend(self.tokenize(m))
         
-        # Combine all tokens
-        all_tokens = title_tokens + desc_tokens + company_tokens
+        # Combine all tokens (include skills, categories, mrt)
+        all_tokens = title_tokens + desc_tokens + company_tokens + skill_tokens + cat_tokens + mrt_tokens
         token_counts = Counter(all_tokens)
         
         # Calculate score
@@ -99,6 +127,24 @@ class KeywordManager:
         if title_match_bonus > 0:
             score += title_match_bonus
             logger.debug(f"[SCORE] Job {job_id} title match bonus: {title_match_bonus} (final score: {score})")
+
+        # Skill exact match bonus (higher weight for explicit skills)
+        skills_lower = [s.lower() for s in skills]
+        for kw_data in user_keywords:
+            kw = kw_data['keyword'].lower()
+            if not kw_data['is_negative'] and kw in skills_lower and kw not in matched_keywords:
+                score += 0.8
+                matched_keywords.append(kw)
+                logger.debug(f"[SCORE] Job {job_id} skills exact bonus for '{kw}' (+0.8) -> {score}")
+
+        # Category match bonus
+        categories_lower = [c.lower() for c in categories]
+        for kw_data in user_keywords:
+            kw = kw_data['keyword'].lower()
+            if not kw_data['is_negative'] and kw in categories_lower and kw not in matched_keywords:
+                score += 0.6
+                matched_keywords.append(kw)
+                logger.debug(f"[SCORE] Job {job_id} category bonus for '{kw}' (+0.6) -> {score}")
         
         final_score = max(score, 0.0)
         logger.debug(f"[SCORE] Job {job_id} final score: {final_score}, matched: {matched_keywords}")
@@ -227,12 +273,18 @@ class KeywordManager:
         positive_count = sum(1 for kw in current_keywords if not kw['is_negative'])
         
         # Get LLM keyword suggestions
+        # Extract skills array to provide context to the LLM
+        try:
+            skills = json.loads(job.get('skills_json') or '[]')
+        except Exception:
+            skills = []
         llm_suggestions = self.llm.expand_keywords(
             job_title=job_title,
             company=str(company),
             description=description_preview,
             current_keywords=current_keywords,
-            user_reaction=action
+            user_reaction=action,
+            skills=skills
         )
         
         # Determine weight delta based on action

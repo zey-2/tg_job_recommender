@@ -52,9 +52,8 @@ def check_env_file():
     
     required_vars = [
         'TELEGRAM_BOT_TOKEN',
-        'ADZUNA_APP_ID',
-        'ADZUNA_APP_KEY',
-        'OPENAI_API_KEY'
+        'OPENAI_API_KEY',
+        'FINDSGJOBS_API_ENDPOINT'
     ]
     
     missing = []
@@ -120,22 +119,18 @@ def check_apis():
         print("    Check your TELEGRAM_BOT_TOKEN")
         return False
     
-    # Check Adzuna (simple request)
+    # Check FindSGJobs (simple request)
     try:
         import requests
         import config
-        url = "https://api.adzuna.com/v1/api/jobs/sg/search/1"
-        params = {
-            "app_id": config.ADZUNA_APP_ID,
-            "app_key": config.ADZUNA_APP_KEY,
-            "results_per_page": 1,
-            "what": "developer"
-        }
+        url = config.FINDSGJOBS_API_ENDPOINT
+        params = {"per_page_count": 1, "page": 1}
+        # No auth required; simply verify we can contact endpoint and get 200
         resp = requests.get(url, params=params, timeout=5)
         if resp.status_code == 200:
-            print("  ✓ Adzuna API credentials valid")
+            print("  ✓ FindSGJobs endpoint reachable")
         else:
-            print(f"  ✗ Adzuna API error: {resp.status_code}")
+            print(f"  ✗ FindSGJobs endpoint error: {resp.status_code}")
             return False
     except Exception as e:
         print(f"  ✗ Adzuna error: {e}")

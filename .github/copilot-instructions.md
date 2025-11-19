@@ -10,7 +10,7 @@ This repository is a small Telegram Job Recommendation Bot that learns user pref
 - Telegram handlers: `bot.py` — defines `JobBot`, command handlers, and application construction (`create_application`).
 - Keyword & ranking: `keyword_manager.py` — tokenization, job scoring, ranking, and feedback-driven keyword updates.
 - LLM integration: `llm_service.py` — `LLMKeywordService` uses OpenAI (`gpt-4o-mini`) to suggest keywords and explain recommendations.
-- Job source: `adzuna_client.py` — wraps Adzuna REST API calls (`search_jobs`, `search_by_keywords`, `get_recent_jobs`).
+- Job source: `findsgjobs_client.py` — wraps FindSGJobs REST API calls (`search_jobs`, `search_by_keywords`, `get_recent_jobs`).
 - Persistence: `database.py` — lightweight SQLite DB, table schemas and helper methods (users, user_keywords, jobs, interactions).
 - Scheduler: `scheduler.py` — builds and sends the daily digest; `run_digest()` is used by `main.py digest` and cloud cron endpoints.
 - Config: `config.py` — environment-driven constants (TOP_K, DECAY, LIKE_BOOST, NEGATIVE_PROMOTE_AT, TELEGRAM_BOT_TOKEN, ADZUNA creds, OPENAI_API_KEY).
@@ -40,7 +40,7 @@ This repository is a small Telegram Job Recommendation Bot that learns user pref
 
 # Config & secrets
 
-- All runtime configuration comes from environment variables read in `config.py`. Sensitive values: `TELEGRAM_BOT_TOKEN`, `ADZUNA_APP_ID`, `ADZUNA_APP_KEY`, `OPENAI_API_KEY`.
+- All runtime configuration comes from environment variables read in `config.py`. Sensitive values: `TELEGRAM_BOT_TOKEN`, `OPENAI_API_KEY`, `FINDSGJOBS_API_ENDPOINT`.
 - To change behavior: update `config.py` values or set environment variables. Typical values to tune: `TOP_K`, `DECAY`, `LIKE_BOOST`, `DISLIKE_PENALTY`, `NEGATIVE_PROMOTE_AT`.
 
 # LLM & prompt guidelines (project-specific)
@@ -69,7 +69,7 @@ This repository is a small Telegram Job Recommendation Bot that learns user pref
 
 # Integration points & external dependencies
 
-- Adzuna REST API — network calls in `adzuna_client.py` (watch API key quotas and `results_per_page`).
+- FindSGJobs REST API — network calls in `findsgjobs_client.py` (watch rate limits and `per_page_count` parameters).
 - OpenAI — `openai.OpenAI` client used in `llm_service.py`. Ensure `OPENAI_API_KEY` has permissions and billing enabled.
 - Telegram Bot API — `python-telegram-bot` is used (v20+ async Application). Webhook usage requires a reachable HTTPS `WEBHOOK_BASE_URL`.
 

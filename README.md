@@ -29,7 +29,7 @@ cp .env.example .env
 Required credentials:
 
 - **TELEGRAM_BOT_TOKEN**: Get from [@BotFather](https://t.me/botfather)
-- **ADZUNA_APP_ID** & **ADZUNA_APP_KEY**: Register at [Adzuna Developer](https://developer.adzuna.com/)
+  -- **FINDSGJOBS_API_ENDPOINT**: FindSGJobs endpoint URL (default: https://www.findsgjobs.com/apis/job/search)
 - **OPENAI_API_KEY**: Get from [OpenAI Platform](https://platform.openai.com/)
 
 ### 3. Run the Bot
@@ -57,6 +57,8 @@ python main.py digest
 
 - `/start` - Register and get welcome message
 - `/more` - Get 2-3 personalized job recommendations
+- `/more` - Get 2-3 personalized job recommendations
+- `/digest_now` - Receive an immediate digest (testing)
 - `/search <keywords>` - Search for specific jobs
 - `/view_keywords` - View your adaptive keyword profile
 - `/add_keyword` - Add a manual positive keyword to your profile (max 4)
@@ -73,7 +75,7 @@ tg_job_recommender/
 ├── bot.py                  # Telegram bot handlers
 ├── config.py               # Configuration
 ├── database.py             # SQLite database operations
-├── adzuna_client.py        # Adzuna API client
+├── findsgjobs_client.py    # FindSGJobs API client
 ├── keyword_manager.py      # Keyword scoring logic
 ├── llm_service.py          # OpenAI integration
 ├── scheduler.py            # Daily digest scheduler
@@ -136,8 +138,7 @@ gcloud scheduler jobs create http digest-job \
 | Variable                        | Description                                                                                   | Default                   |
 | ------------------------------- | --------------------------------------------------------------------------------------------- | ------------------------- |
 | `TELEGRAM_BOT_TOKEN`            | Telegram bot token                                                                            | Required                  |
-| `ADZUNA_APP_ID`                 | Adzuna API ID                                                                                 | Required                  |
-| `ADZUNA_APP_KEY`                | Adzuna API key                                                                                | Required                  |
+| `FINDSGJOBS_API_ENDPOINT`       | FindSGJobs API endpoint (search or searchable)                                                | Required                  |
 | `OPENAI_API_KEY`                | OpenAI API key                                                                                | Required                  |
 | `TOP_K`                         | Max adaptive keywords                                                                         | 8                         |
 | `DAILY_COUNT`                   | Jobs per daily digest                                                                         | 5                         |
