@@ -201,6 +201,57 @@ class Database:
                 WHERE user_id = ?
             """, (next_digest.isoformat(), user_id))
             self.conn.commit()
+
+    def reserve_due_users_for_digest(self, now_iso: str) -> List[Dict]:
+        """Atomically reserve users who are due for digest and advance their next_digest_at by 1 day.
+
+        This method uses an immediate transaction to prevent race conditions when multiple
+        scheduler instances attempt to reserve the same users. Returns the list of user records reserved.
+        """
+        cursor = self.conn.cursor()
+        users = []
+        try:
+            # Start immediate transaction to acquire write lock
+            cursor.execute("BEGIN IMMEDIATE")
+            cursor.execute(
+                "SELECT user_id, next_digest_at FROM users WHERE notifications_enabled = 1 AND next_digest_at <= ?",
+                (now_iso,)
+            )
+            rows = cursor.fetchall()
+            if not rows:
+                cursor.execute("COMMIT")
+                return []
+
+            # Advance each user's next_digest_at by 1 day (calculate with Python to preserve ISO tz info)
+            user_ids = []
+            for r in rows:
+                uid = r[0]
+                nd = r[1]
+                if not nd:
+                    continue
+                current_digest = datetime.fromisoformat(nd)
+                next_digest = (current_digest + timedelta(days=1)).isoformat()
+                cursor.execute(
+                    "UPDATE users SET next_digest_at = ?, updated_at = CURRENT_TIMESTAMP WHERE user_id = ?",
+                    (next_digest, uid)
+                )
+                user_ids.append(uid)
+
+            # Commit transaction
+            cursor.execute("COMMIT")
+
+            # Return full user records
+            users = []
+            for uid in user_ids:
+                cursor.execute("SELECT * FROM users WHERE user_id = ?", (uid,))
+                row = cursor.fetchone()
+                if row:
+                    users.append(dict(row))
+            return users
+
+        except Exception:
+            cursor.execute("ROLLBACK")
+            raise
     
     # Keyword operations
     def get_user_keywords(self, user_id: int, top_k: int = None) -> List[Dict]:

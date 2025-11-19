@@ -1,7 +1,11 @@
 """Scheduler for daily digest notifications."""
 import asyncio
 import logging
+from datetime import datetime
+from pytz import timezone
 import random
+from apscheduler.schedulers.asyncio import AsyncIOScheduler
+from apscheduler.events import EVENT_JOB_EXECUTED, EVENT_JOB_ERROR
 from typing import List, Dict
 from telegram import Bot
 from telegram.constants import ParseMode
@@ -103,8 +107,7 @@ class DigestScheduler:
                 # Small delay to avoid rate limits
                 await asyncio.sleep(0.5)
             
-            # Update next digest time
-            self.db.update_next_digest(user_id)
+            # Next digest already advanced by reservation (DB-level update). No action required here.
             
         except Exception as e:
             print(f"Error sending digest to user {user_id}: {e}")
@@ -113,8 +116,9 @@ class DigestScheduler:
         """Run digest job - send to all eligible users."""
         print("Running daily digest job...")
         
-        # Get users due for digest
-        users = self.db.get_users_for_digest()
+        # Reserve users due for digest atomically and advance their next_digest_at
+        now_iso = datetime.now(timezone(config.DEFAULT_TIMEZONE)).isoformat()
+        users = self.db.reserve_due_users_for_digest(now_iso)
         
         if not users:
             print("No users due for digest")
@@ -136,6 +140,7 @@ class DigestScheduler:
 
 # Global scheduler instance
 _scheduler = None
+_apscheduler = None
 
 def get_scheduler() -> DigestScheduler:
     """Get global scheduler instance."""
@@ -149,3 +154,53 @@ async def run_digest():
     """Entry point for running digest job."""
     scheduler = get_scheduler()
     await scheduler.run_digest_job()
+
+
+def start_background_scheduler(application=None):
+    """Start a background scheduler (APScheduler AsyncIO) that runs run_digest every interval.
+
+    Returns the scheduler instance.
+    """
+    logger.info("Starting background scheduler (self-scheduling)")
+    global _apscheduler
+    scheduler = AsyncIOScheduler(timezone=config.SCHEDULER_TZ)
+
+    # Job listener for logging
+    def _job_listener(event):
+        if event.code == EVENT_JOB_EXECUTED:
+            logger.info("Scheduler job executed successfully")
+        elif event.code == EVENT_JOB_ERROR:
+            logger.exception("Scheduler job raised an exception")
+
+    scheduler.add_listener(_job_listener, EVENT_JOB_EXECUTED | EVENT_JOB_ERROR)
+
+    # Schedule the async run_digest coroutine directly
+    scheduler.add_job(
+        run_digest,
+        trigger="interval",
+        seconds=config.SCHEDULER_INTERVAL_SECONDS,
+        max_instances=config.SCHEDULER_MAX_INSTANCES,
+        coalesce=config.SCHEDULER_COALESCE,
+        misfire_grace_time=config.SCHEDULER_MISFIRE_GRACE_TIME,
+        id="run_digest_job",
+    )
+
+    _apscheduler = scheduler
+    scheduler.start()
+    logger.info("Background scheduler started")
+    return scheduler
+
+
+def shutdown_scheduler(scheduler):
+    """Shutdown the background scheduler if running."""
+    global _apscheduler
+    if not scheduler:
+        scheduler = _apscheduler
+    if not scheduler:
+        return
+    try:
+        logger.info("Shutting down background scheduler...")
+        scheduler.shutdown(wait=True)
+        logger.info("Background scheduler shut down")
+    except Exception:
+        logger.exception("Error shutting down scheduler")

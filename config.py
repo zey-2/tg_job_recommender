@@ -1,5 +1,6 @@
 """Configuration settings for the Telegram Job Bot."""
 import os
+from typing import Optional
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -34,3 +35,19 @@ WEBHOOK_BASE_URL = os.getenv("WEBHOOK_BASE_URL")
 
 # Timezone
 DEFAULT_TIMEZONE = "Asia/Singapore"
+
+# Scheduler settings (self-scheduling background scheduler)
+# Enable/disable the in-process scheduler (polling mode)
+SCHEDULER_ENABLED = bool(int(os.getenv("SCHEDULER_ENABLED", "1")))
+# Interval in seconds for scheduler to check for due digests (default: 60s)
+SCHEDULER_INTERVAL_SECONDS = int(os.getenv("SCHEDULER_INTERVAL_SECONDS", "60"))
+# APScheduler timezone name
+SCHEDULER_TZ = os.getenv("SCHEDULER_TZ", DEFAULT_TIMEZONE)
+# Scheduler job concurrency controls
+SCHEDULER_MAX_INSTANCES = int(os.getenv("SCHEDULER_MAX_INSTANCES", "1"))
+SCHEDULER_COALESCE = bool(int(os.getenv("SCHEDULER_COALESCE", "1")))
+SCHEDULER_MISFIRE_GRACE_TIME = int(os.getenv("SCHEDULER_MISFIRE_GRACE_TIME", "300"))
+
+# Optional distributed locking with Redis (future use)
+SCHEDULER_USE_DISTRIBUTED_LOCK = bool(int(os.getenv("SCHEDULER_USE_DISTRIBUTED_LOCK", "0")))
+REDIS_URL: Optional[str] = os.getenv("REDIS_URL")

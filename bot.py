@@ -414,7 +414,7 @@ class JobBot:
                 parse_mode=ParseMode.MARKDOWN
             )
     
-    def create_application(self) -> Application:
+    def create_application(self, start_scheduler: bool = False) -> Application:
         """Create and configure the bot application."""
         
         async def set_commands(application):
@@ -430,7 +430,16 @@ class JobBot:
             ]
             await application.bot.set_my_commands(commands)
         
-        application = Application.builder().token(config.TELEGRAM_BOT_TOKEN).post_init(set_commands).build()
+        async def _post_init(application):
+            # set commands as before
+            await set_commands(application)
+            # optionally start scheduler
+            if start_scheduler and config.SCHEDULER_ENABLED:
+                # Start scheduler in the running event loop
+                from scheduler import start_background_scheduler
+                start_background_scheduler(application)
+
+        application = Application.builder().token(config.TELEGRAM_BOT_TOKEN).post_init(_post_init).build()
         
         # Conversation handler for /search
         search_handler = ConversationHandler(

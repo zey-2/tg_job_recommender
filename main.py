@@ -7,7 +7,7 @@ import logging
 from telegram import Update
 from telegram.ext import Application
 from bot import get_bot
-from scheduler import run_digest
+from scheduler import run_digest, start_background_scheduler, shutdown_scheduler
 import config
 
 # Configure logging
@@ -29,34 +29,27 @@ def run_polling():
     
     # Create application
     job_bot = get_bot()
-    application = job_bot.create_application()
-    
+    # Ask the bot to start the scheduler on initialization (post_init) if enabled
+    application = job_bot.create_application(start_scheduler=config.SCHEDULER_ENABLED)
+
     # Start polling
     logger.info("Bot is running. Press Ctrl+C to stop.")
     print("Bot is running. Press Ctrl+C to stop.")
-    application.run_polling(allowed_updates=Update.ALL_TYPES)
+    try:
+        application.run_polling(allowed_updates=Update.ALL_TYPES)
+    finally:
+        # Ensure scheduler shutdown (if it was created)
+        try:
+            shutdown_scheduler(None)
+        except Exception:
+            logger.exception("Failed to shutdown scheduler: ")
 
 
 def run_webhook(port: int = 8080):
-    """Run bot in webhook mode (for Cloud Run)."""
-    print(f"Starting bot in webhook mode on port {port}...")
-    
-    # Create application
-    job_bot = get_bot()
-    application = job_bot.create_application()
-    
-    base_url = (config.WEBHOOK_BASE_URL or os.getenv("RENDER_EXTERNAL_URL") or "").strip()
-    if not base_url:
-        raise ValueError("WEBHOOK_BASE_URL or RENDER_EXTERNAL_URL must be set for webhook mode")
-    webhook_url = base_url.rstrip('/') + "/webhook"
-    
-    # Start webhook server
-    application.run_webhook(
-        listen="0.0.0.0",
-        port=port,
-        url_path="/webhook",
-        webhook_url=webhook_url
-    )
+    """Webhook mode removed: this project is polling-only.
+    For manual digest runs, use 'python main.py digest' (keeps working).
+    """
+    raise RuntimeError("Webhook mode has been removed. Please use polling mode instead: 'python main.py'")
 def run_digest_job():
     """Run the daily digest job (sync wrapper)."""
     asyncio.run(run_digest())
@@ -70,9 +63,8 @@ if __name__ == "__main__":
             print("Running digest job...")
             run_digest_job()
         elif sys.argv[1] == "webhook":
-            # Run in webhook mode
-            port = int(sys.argv[2]) if len(sys.argv) > 2 else 8080
-            run_webhook(port)
+            # Webhook mode is no longer supported
+            print("Webhook mode has been removed; please use polling mode (default).")
         else:
             print("Unknown command. Use 'python main.py [polling|webhook|digest]'")
     else:

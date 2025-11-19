@@ -27,6 +27,7 @@ cp .env.example .env
 ```
 
 Required credentials:
+
 - **TELEGRAM_BOT_TOKEN**: Get from [@BotFather](https://t.me/botfather)
 - **ADZUNA_APP_ID** & **ADZUNA_APP_KEY**: Register at [Adzuna Developer](https://developer.adzuna.com/)
 - **OPENAI_API_KEY**: Get from [OpenAI Platform](https://platform.openai.com/)
@@ -34,16 +35,20 @@ Required credentials:
 ### 3. Run the Bot
 
 **Development (Polling Mode):**
+
 ```bash
 python main.py
 ```
 
-**Production (Webhook Mode):**
+**Production (Polling Mode — self-scheduling):**
+Run the bot in polling mode; a background scheduler will run every minute to send digests:
+
 ```bash
-python main.py webhook 8080
+python main.py
 ```
 
 **Run Digest Job:**
+
 ```bash
 python main.py digest
 ```
@@ -99,7 +104,7 @@ COPY . .
 
 EXPOSE 8080
 
-CMD ["python", "main.py", "webhook", "8080"]
+ CMD ["python", "main.py"]
 ```
 
 ### Deploy to Google Cloud Run
@@ -125,20 +130,23 @@ gcloud scheduler jobs create http digest-job \
 
 ## Environment Variables
 
-| Variable | Description | Default |
-|----------|-------------|---------|
-| `TELEGRAM_BOT_TOKEN` | Telegram bot token | Required |
-| `ADZUNA_APP_ID` | Adzuna API ID | Required |
-| `ADZUNA_APP_KEY` | Adzuna API key | Required |
-| `OPENAI_API_KEY` | OpenAI API key | Required |
-| `TOP_K` | Max adaptive keywords | 8 |
-| `DAILY_COUNT` | Jobs per daily digest | 5 |
-| `DECAY` | Weight decay factor | 0.98 |
-| `LIKE_BOOST` | Weight increase on like | 1.0 |
-| `DISLIKE_PENALTY` | Weight decrease on dislike | -1.0 |
-| `MAX_NEW_POSITIVE_PER_FEEDBACK` | New positive keywords allowed per feedback once you already have 8 | 3 |
-| `MAX_NEW_NEGATIVE_PER_FEEDBACK` | New negative keywords allowed per feedback cycle | 2 |
-| `WEBHOOK_BASE_URL` | Fully-qualified base URL Render/Cloud Run should expose (falls back to `RENDER_EXTERNAL_URL`) | Required for webhook mode |
+| Variable                        | Description                                                                                   | Default                   |
+| ------------------------------- | --------------------------------------------------------------------------------------------- | ------------------------- |
+| `TELEGRAM_BOT_TOKEN`            | Telegram bot token                                                                            | Required                  |
+| `ADZUNA_APP_ID`                 | Adzuna API ID                                                                                 | Required                  |
+| `ADZUNA_APP_KEY`                | Adzuna API key                                                                                | Required                  |
+| `OPENAI_API_KEY`                | OpenAI API key                                                                                | Required                  |
+| `TOP_K`                         | Max adaptive keywords                                                                         | 8                         |
+| `DAILY_COUNT`                   | Jobs per daily digest                                                                         | 5                         |
+| `DECAY`                         | Weight decay factor                                                                           | 0.98                      |
+| `LIKE_BOOST`                    | Weight increase on like                                                                       | 1.0                       |
+| `DISLIKE_PENALTY`               | Weight decrease on dislike                                                                    | -1.0                      |
+| `MAX_NEW_POSITIVE_PER_FEEDBACK` | New positive keywords allowed per feedback once you already have 8                            | 3                         |
+| `MAX_NEW_NEGATIVE_PER_FEEDBACK` | New negative keywords allowed per feedback cycle                                              | 2                         |
+| `WEBHOOK_BASE_URL`              | Fully-qualified base URL Render/Cloud Run should expose (falls back to `RENDER_EXTERNAL_URL`) | Required for webhook mode |
+| `SCHEDULER_ENABLED`             | Enable in-process scheduler (polling mode)                                                    | true                      |
+| `SCHEDULER_INTERVAL_SECONDS`    | Scheduler interval in seconds for digest checks                                               | 60                        |
+| `SCHEDULER_TZ`                  | Scheduler timezone                                                                            | Asia/Singapore            |
 
 ## License
 
