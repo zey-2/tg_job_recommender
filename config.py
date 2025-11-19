@@ -31,7 +31,7 @@ MAX_NEW_POSITIVE_PER_FEEDBACK = int(os.getenv("MAX_NEW_POSITIVE_PER_FEEDBACK", 3
 MAX_NEW_NEGATIVE_PER_FEEDBACK = int(os.getenv("MAX_NEW_NEGATIVE_PER_FEEDBACK", 2))
 # Manual keyword settings
 # Max number of manual (positive) keywords a user can add
-MAX_MANUAL_KEYWORDS = int(os.getenv("MAX_MANUAL_KEYWORDS", 4))
+MAX_MANUAL_KEYWORDS = int(os.getenv("MAX_MANUAL_KEYWORDS", 3))
 DEFAULT_NOTIFICATIONS = os.getenv("DEFAULT_NOTIFICATIONS", "true").lower() == "true"
 DEFAULT_NOTIFICATION_TIME = os.getenv("DEFAULT_NOTIFICATION_TIME", "09:00")
 WEBHOOK_BASE_URL = os.getenv("WEBHOOK_BASE_URL")
