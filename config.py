@@ -51,6 +51,9 @@ MAX_NEW_NEGATIVE_PER_FEEDBACK = int(os.getenv("MAX_NEW_NEGATIVE_PER_FEEDBACK", 2
 # Manual keyword settings
 # Max number of manual (positive) keywords a user can add
 MAX_MANUAL_KEYWORDS = int(os.getenv("MAX_MANUAL_KEYWORDS", 3))
+#
+# How many different keywords to try before falling back to recent jobs
+MAX_KEYWORD_RETRIES = int(os.getenv("MAX_KEYWORD_RETRIES", 3))
 DEFAULT_NOTIFICATIONS = os.getenv("DEFAULT_NOTIFICATIONS", "true").lower() == "true"
 DEFAULT_NOTIFICATION_TIME = os.getenv("DEFAULT_NOTIFICATION_TIME", "09:00")
 WEBHOOK_BASE_URL = os.getenv("WEBHOOK_BASE_URL")
@@ -97,4 +100,4 @@ ENCOURAGEMENT_MAX_TOKENS = int(os.getenv("ENCOURAGEMENT_MAX_TOKENS", "120"))
 
 # Optional comma-separated company blocklist (case-insensitive). Useful for filtering companies
 # which produce malformed or inconsistent job data, e.g. 'MARINA BAY SANDS'
-COMPANY_BLOCKLIST = [name.strip() for name in os.getenv("COMPANY_BLOCKLIST", "MARINA BAY SANDS").split(',') if name.strip()]
+COMPANY_BLOCKLIST = [name.strip() for name in os.getenv("COMPANY_BLOCKLIST", "MARINA BAY SANDS PTE. LTD.").split(',') if name.strip()]

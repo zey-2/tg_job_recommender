@@ -208,32 +208,36 @@ class JobBot:
         keyword_list = [kw['keyword'] for kw in keywords if not kw['is_negative']]
         logger.info(f"[MORE] User {user_id} has {len(keywords)} total keywords, {len(keyword_list)} positive: {keyword_list}")
         
-        # Randomly select 1 keyword for search (if available)
-        if len(keyword_list) >= 1:
-            selected_keywords = random.sample(keyword_list, 1)
-        else:
-            selected_keywords = []
-        
-        logger.info(f"[MORE] Selected keywords for search: {selected_keywords}")
-        
-        # Display the keyword being used
-        if selected_keywords:
-            await update.message.reply_text(f"🔍 Searching with keyword: *{selected_keywords[0]}*", parse_mode=ParseMode.MARKDOWN)
-        else:
-            await update.message.reply_text("🔍 Searching recent jobs (no keywords available yet)", parse_mode=ParseMode.MARKDOWN)
-        
-        # Fetch jobs
-        if selected_keywords:
-            logger.info(f"[MORE] Searching by keywords: {selected_keywords}")
-            jobs = self.findsgjobs.search_by_keywords(selected_keywords, limit=50, user_id=user_id, context=context)
-        else:
-            logger.info(f"[MORE] No keywords found, fetching recent jobs")
-            jobs = self.findsgjobs.get_recent_jobs(limit=50, user_id=user_id, context=context)
+        # Pick a random preferred keyword to try first (if any) and attempt search with retries
+        preferred_keyword = random.choice(keyword_list) if keyword_list else None
+        jobs, used_keyword, deleted_keywords, manual_failed, used_recent = self.keyword_manager.search_with_keyword_retry(
+            user_id=user_id, findsg_client=self.findsgjobs, context=context, limit=50, preferred_keyword=preferred_keyword
+        )
+
+        # Inform user about keyword deletions or manual failures
+        if deleted_keywords:
+            await update.message.reply_text(
+                f"🔄 Removed keyword(s) with no results: {', '.join(deleted_keywords)}. Trying alternatives...",
+                parse_mode=ParseMode.MARKDOWN
+            )
+        if manual_failed:
+            await update.message.reply_text(
+                f"⚠️ Your manual keyword(s) returned no results and were kept: {', '.join(manual_failed)}",
+                parse_mode=ParseMode.MARKDOWN
+            )
+
+        # Inform which source is used
+        if used_keyword:
+            logger.info(f"[MORE] Using keyword: {used_keyword}")
+            await update.message.reply_text(f"🔍 Searching with keyword: *{used_keyword}*", parse_mode=ParseMode.MARKDOWN)
+        elif used_recent:
+            logger.info(f"[MORE] No usable keywords, fetching recent jobs")
+            await update.message.reply_text("🔍 Searching recent jobs (no keywords available or after retries)", parse_mode=ParseMode.MARKDOWN)
         
         logger.info(f"[MORE] Fetched {len(jobs)} jobs from FindSGJobs")
         
         if not jobs:
-            logger.warning(f"[MORE] No jobs returned from FindSGJobs for user {user_id}")
+            logger.warning(f"[MORE] No jobs returned from FindSGJobs for user {user_id} after retries")
             await update.message.reply_text(
                 "😕 No jobs found right now. Try again later or use /search to find specific jobs.",
                 parse_mode=ParseMode.MARKDOWN
@@ -289,20 +293,28 @@ class JobBot:
             await update.message.reply_text("Please use /start first to register!", parse_mode=ParseMode.MARKDOWN)
             return
 
-        # Reuse the logic from more_command but show DAILY_COUNT jobs
-        keywords = self.db.get_user_keywords(user_id, top_k=config.TOP_K)
-        keyword_list = [kw['keyword'] for kw in keywords if not kw['is_negative']]
+        # Reuse the logic from more_command but show DAILY_COUNT jobs with retry/deletion
+        # For digest_now: pick a random preferred keyword and attempt search with retries
+        preferred_keyword = random.choice(keyword_list) if keyword_list else None
+        jobs, used_keyword, deleted_keywords, manual_failed, used_recent = self.keyword_manager.search_with_keyword_retry(
+            user_id=user_id, findsg_client=self.findsgjobs, context=context, limit=50, preferred_keyword=preferred_keyword
+        )
 
-        if len(keyword_list) >= 1:
-            selected_keywords = random.sample(keyword_list, 1)
-        else:
-            selected_keywords = []
-
-        # Fetch jobs with user's min salary preference
-        if selected_keywords:
-            jobs = self.findsgjobs.search_by_keywords(selected_keywords, limit=50, user_id=user_id, context=context)
-        else:
-            jobs = self.findsgjobs.get_recent_jobs(limit=50, user_id=user_id, context=context)
+        # Inform user about keyword deletions or manual failures
+        if deleted_keywords:
+            await update.message.reply_text(
+                f"🔄 Removed keyword(s) with no results: {', '.join(deleted_keywords)}. Trying alternatives...",
+                parse_mode=ParseMode.MARKDOWN
+            )
+        if manual_failed:
+            await update.message.reply_text(
+                f"⚠️ Your manual keyword(s) returned no results and were kept: {', '.join(manual_failed)}",
+                parse_mode=ParseMode.MARKDOWN
+            )
+        if used_keyword:
+            await update.message.reply_text(f"🔍 Searching with keyword: *{used_keyword}*", parse_mode=ParseMode.MARKDOWN)
+        elif used_recent:
+            await update.message.reply_text("🔍 Searching recent jobs (no keywords available or after retries)", parse_mode=ParseMode.MARKDOWN)
 
         ranked = self.keyword_manager.rank_jobs(jobs, user_id, exclude_recent=True)
         if not ranked:

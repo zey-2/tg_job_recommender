@@ -60,11 +60,13 @@ class DigestScheduler:
                     self._chat_id = chat_id
 
             ctx = _Ctx(bot, user_id)
-            # Fetch jobs
-            if selected_keywords:
-                jobs = self.findsgjobs.search_by_keywords(selected_keywords, limit=50, user_id=user_id, context=ctx)
-            else:
-                jobs = self.findsgjobs.get_recent_jobs(limit=50, user_id=user_id, context=ctx)
+            # Fetch jobs using retry logic; for scheduled digests we will perform silent cleanup (log deleted keywords)
+            preferred_keyword = random.choice(keyword_list) if keyword_list else None
+            jobs, used_keyword, deleted_keywords, manual_failed, used_recent = self.keyword_manager.search_with_keyword_retry(
+                user_id=user_id, findsg_client=self.findsgjobs, context=ctx, limit=50, preferred_keyword=preferred_keyword
+            )
+            if deleted_keywords:
+                logger.info(f"[DIGEST] Deleted auto keywords for user {user_id} during digest retry: {deleted_keywords}")
             
             if not jobs:
                 # No jobs found - skip for now

@@ -5,6 +5,7 @@ import logging
 from typing import List, Dict, Tuple
 from collections import Counter
 import config
+import random
 from database import get_db
 from llm_service import get_llm_service
 
@@ -150,6 +151,8 @@ class KeywordManager:
         logger.debug(f"[SCORE] Job {job_id} final score: {final_score}, matched: {matched_keywords}")
         
         return final_score, matched_keywords
+
+    # (search_with_keyword_retry implementation moved lower to keep randomized behavior)
     
     def rank_jobs(self, jobs: List[Dict], user_id: int, 
                  exclude_recent: bool = True) -> List[Tuple[Dict, float, List[str]]]:
@@ -219,6 +222,68 @@ class KeywordManager:
             logger.info(f"[RANK] Top 5 scores: {[(job.get('id'), score) for job, score, _ in scored_jobs[:5]]}")
         
         return scored_jobs
+
+    def search_with_keyword_retry(self, user_id: int, findsg_client, context=None, limit: int = 50, preferred_keyword: str = None):
+        """
+        Attempt to search using the user's positive keywords. If a keyword returns zero results
+        and it is an auto-generated keyword, delete it immediately and continue with the next
+        keyword. Returns: (jobs, used_keyword, deleted_keywords, manual_failed_keywords, used_recent_flag).
+        """
+        keywords = self.db.get_user_keywords(user_id, top_k=config.TOP_K)
+        positive_keywords = [kw for kw in keywords if not kw.get('is_negative')]
+        deleted_keywords = []
+        manual_failed = []
+
+        # If no positive keywords, fallback to recent jobs
+        if not positive_keywords:
+            jobs = findsg_client.get_recent_jobs(limit=limit, user_id=user_id, context=context)
+            return jobs, None, deleted_keywords, manual_failed, True
+
+        # Prepare attempt order. If preferred_keyword is provided, try it first.
+        # Otherwise shuffle and attempt up to MAX_KEYWORD_RETRIES.
+        remaining = positive_keywords.copy()
+        if preferred_keyword:
+            # Ensure preferred_keyword is in the remaining list
+            remaining = [k for k in remaining if k.get('keyword') != preferred_keyword]
+            attempts_order = [preferred_keyword] + [k.get('keyword') for k in remaining]
+        else:
+            random.shuffle(remaining)
+            attempts_order = [k.get('keyword') for k in remaining]
+
+        max_attempts = min(config.MAX_KEYWORD_RETRIES, len(attempts_order))
+        attempts = 0
+        for keyword_text in attempts_order:
+            if attempts >= max_attempts:
+                break
+            attempts += 1
+            # Find the source of the keyword (manual/auto)
+            kw_row = next((k for k in positive_keywords if k.get('keyword') == keyword_text), {})
+            source = kw_row.get('source') or 'auto'
+            logger.info(f"[KMR] Attempt {attempts}/{max_attempts} for user {user_id} using keyword: {keyword_text} (source={source})")
+            try:
+                jobs = findsg_client.search_by_keywords([keyword_text], limit=limit, user_id=user_id, context=context)
+            except Exception as e:
+                logger.warning(f"[KMR] Search failed for keyword '{keyword_text}': {e}")
+                jobs = []
+
+            if jobs:
+                return jobs, keyword_text, deleted_keywords, manual_failed, False
+
+            # No jobs found — remove keyword if auto-generated
+            if source != 'manual':
+                try:
+                    self.db.delete_keyword(user_id, keyword_text)
+                    deleted_keywords.append(keyword_text)
+                    logger.info(f"[KMR] Deleted auto keyword '{keyword_text}' for user {user_id} after zero-result search")
+                except Exception as e:
+                    logger.exception(f"[KMR] Failed to delete keyword '{keyword_text}' for user {user_id}: {e}")
+            else:
+                manual_failed.append(keyword_text)
+
+        # Fallback to recent jobs
+        logger.info(f"[KMR] All {attempts} attempts for user {user_id} returned no results. Falling back to recent jobs.")
+        jobs = findsg_client.get_recent_jobs(limit=limit, user_id=user_id, context=context)
+        return jobs, None, deleted_keywords, manual_failed, True
     
     def update_keywords_from_feedback(self, user_id: int, job: Dict, action: str):
         """
