@@ -54,3 +54,8 @@ SCHEDULER_MISFIRE_GRACE_TIME = int(os.getenv("SCHEDULER_MISFIRE_GRACE_TIME", "30
 # Optional distributed locking with Redis (future use)
 SCHEDULER_USE_DISTRIBUTED_LOCK = bool(int(os.getenv("SCHEDULER_USE_DISTRIBUTED_LOCK", "0")))
 REDIS_URL: Optional[str] = os.getenv("REDIS_URL")
+
+# Encouragement (daily shared) settings
+ENCOURAGEMENT_ENABLED = bool(int(os.getenv("ENCOURAGEMENT_ENABLED", "1")))
+ENCOURAGEMENT_CACHE_DAYS = int(os.getenv("ENCOURAGEMENT_CACHE_DAYS", "7"))
+ENCOURAGEMENT_MAX_TOKENS = int(os.getenv("ENCOURAGEMENT_MAX_TOKENS", "120"))

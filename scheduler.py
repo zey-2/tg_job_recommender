@@ -14,6 +14,7 @@ from database import get_db
 from adzuna_client import get_adzuna_client
 from keyword_manager import get_keyword_manager
 from bot import get_bot
+from llm_service import get_llm_service
 
 logger = logging.getLogger(__name__)
 
@@ -31,6 +32,8 @@ class DigestScheduler:
     async def send_digest_to_user(self, bot: Bot, user: Dict):
         """Send daily digest to a single user."""
         user_id = user['user_id']
+        # Extract optional encouragement message passed via user dict
+        encouragement = user.get('encouragement')
         
         try:
             # Get user keywords
@@ -66,11 +69,11 @@ class DigestScheduler:
                 # No new jobs
                 return
             
-            # Send header
-            header = (
-                "📬 *Your Daily Job Digest*\n"
-                "Here are your top 5:\n"
-            )
+            # Send header (include optional daily encouragement if present)
+            header = "📬 *Your Daily Job Digest*\n"
+            if encouragement:
+                header += f"💪 {encouragement}\n\n"
+            header += "Here are your top 5:\n"
             await bot.send_message(
                 chat_id=user_id,
                 text=header,
@@ -128,9 +131,26 @@ class DigestScheduler:
         
         # Create bot instance
         bot = Bot(token=config.TELEGRAM_BOT_TOKEN)
+
+        # Determine today's encouragement message (single message for all users)
+        encouragement_msg = None
+        if config.ENCOURAGEMENT_ENABLED:
+            today_date = datetime.now(timezone(config.DEFAULT_TIMEZONE)).date().isoformat()
+            encouragement_msg = self.db.get_daily_cache('encouragement_message', today_date)
+            if not encouragement_msg:
+                # Generate new encouragement and cache it
+                try:
+                    llm = get_llm_service()
+                    encouragement_msg = llm.generate_encouragement()
+                    if encouragement_msg:
+                        self.db.set_daily_cache('encouragement_message', encouragement_msg, today_date)
+                except Exception as e:
+                    logger.warning("Failed to generate encouragement message: %s", e)
+                    encouragement_msg = None
         
-        # Send to each user
+        # Send to each user (attach encouragement message to the user payload so send_digest_to_user can read it)
         for user in users:
+            user['encouragement'] = encouragement_msg
             await self.send_digest_to_user(bot, user)
             # Delay between users to avoid rate limits
             await asyncio.sleep(1)
@@ -188,6 +208,24 @@ def start_background_scheduler(application=None):
     _apscheduler = scheduler
     scheduler.start()
     logger.info("Background scheduler started")
+    # Optionally pre-generate the daily encouragement message at startup to reduce first-request latency
+    if config.ENCOURAGEMENT_ENABLED:
+        try:
+            scheduler_instance = get_scheduler()
+            today_date = datetime.now(timezone(config.DEFAULT_TIMEZONE)).date().isoformat()
+            cache_value = scheduler_instance.db.get_daily_cache('encouragement_message', today_date)
+            if not cache_value:
+                llm = get_llm_service()
+                msg = llm.generate_encouragement()
+                if msg:
+                    scheduler_instance.db.set_daily_cache('encouragement_message', msg, today_date)
+        except Exception as e:
+            logger.warning("Failed to pre-generate encouragement message on startup: %s", e)
+    # Cleanup old cached messages to prevent table growth
+    try:
+        get_scheduler().db.cleanup_old_cache(config.ENCOURAGEMENT_CACHE_DAYS)
+    except Exception:
+        logger.info("No cache cleanup performed or error occurred")
     return scheduler
 
 

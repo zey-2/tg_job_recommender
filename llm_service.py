@@ -138,6 +138,48 @@ Focus on concrete, searchable terms. Avoid overly generic words."""
         
         return f"Matches your interests: {kw_str}"
 
+    def generate_encouragement(self) -> str:
+        """
+        Generate a short (1-2 sentences) positive encouragement message for users.
+        This is intended to be a generic, non-technical life encouragement and should be
+        safe for all audiences. Returns a plain string.
+        """
+        prompt = (
+            "You are a friendly and brief life coach. "
+            "Provide a single short, positive, and non-sectarian encouragement sentence (1-2 sentences) "
+            "that could be sent to anyone as a quick motivational message. Keep it under 30 words. "
+            "Return only the plain sentence without quotes or any extra formatting."
+        )
+
+        try:
+            response = self.client.chat.completions.create(
+                model=self.model,
+                messages=[
+                    {"role": "system", "content": "You are a helpful and concise assistant that writes short encouragement messages."},
+                    {"role": "user", "content": prompt}
+                ],
+                temperature=0.9,
+                max_tokens=config.ENCOURAGEMENT_MAX_TOKENS
+            )
+            content = response.choices[0].message.content.strip()
+            # Take first line and strip for safety
+            message = content.splitlines()[0].strip()
+            # Avoid empty response
+            if not message:
+                raise ValueError("Empty response from LLM when generating encouragement")
+            return message
+        except Exception as e:
+            # Fallback list of safe encouragement messages
+            fallbacks = [
+                "Keep going — small steps lead to big changes.",
+                "You've got this — remember to be kind to yourself today.",
+                "Every day is a new chance to learn and grow.",
+                "Take a deep breath — you're doing better than you think.",
+            ]
+            # Log a lightweight message and return a deterministic fallback
+            print(f"LLM encouragement generation failed: {e}")
+            return fallbacks[0]
+
 
 # Global service instance
 _service = None

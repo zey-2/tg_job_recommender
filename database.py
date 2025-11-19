@@ -92,6 +92,16 @@ class Database:
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_interactions_user ON interactions(user_id)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_interactions_job ON interactions(job_id)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_users_digest_time ON users(next_digest_at)")
+        # Daily cache table for small globally-shared values (e.g., today's encouragement message)
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS daily_cache (
+                cache_key TEXT PRIMARY KEY,
+                cache_value TEXT NOT NULL,
+                cache_date TEXT NOT NULL,
+                created_at TEXT DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_daily_cache_date ON daily_cache(cache_date)")
         
         self.conn.commit()
         # Ensure 'source' column exists for compatibility with older DBs
@@ -104,6 +114,37 @@ class Database:
             except Exception:
                 # If alter table fails, log silently and continue
                 pass
+
+    # Daily cache helpers
+    def get_daily_cache(self, cache_key: str, expected_date: str):
+        """Return cached value for key if it exists for expected_date, else None."""
+        cursor = self.conn.cursor()
+        cursor.execute("SELECT cache_value FROM daily_cache WHERE cache_key = ? AND cache_date = ?", (cache_key, expected_date))
+        row = cursor.fetchone()
+        return row[0] if row else None
+
+    def set_daily_cache(self, cache_key: str, cache_value: str, cache_date: str):
+        """Set or update a cached value for a given date.
+
+        Uses an upsert so updates replace previous entries.
+        """
+        cursor = self.conn.cursor()
+        cursor.execute("""
+            INSERT INTO daily_cache (cache_key, cache_value, cache_date)
+            VALUES (?, ?, ?)
+            ON CONFLICT(cache_key) DO UPDATE SET
+                cache_value = excluded.cache_value,
+                cache_date = excluded.cache_date,
+                created_at = CURRENT_TIMESTAMP
+        """, (cache_key, cache_value, cache_date))
+        self.conn.commit()
+
+    def cleanup_old_cache(self, days_to_keep: int = 7):
+        """Remove cache entries older than days_to_keep to prevent table growth."""
+        cursor = self.conn.cursor()
+        cutoff = (datetime.now() - timedelta(days=days_to_keep)).date().isoformat()
+        cursor.execute("DELETE FROM daily_cache WHERE cache_date < ?", (cutoff,))
+        self.conn.commit()
     
     # User operations
     def create_user(self, user_id: int, username: str = None, prefs: dict = None) -> bool:
