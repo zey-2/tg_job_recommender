@@ -22,7 +22,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # Conversation states
-WAITING_FOR_SEARCH_QUERY, WAITING_FOR_TIME, WAITING_FOR_MANUAL_KEYWORD = range(3)
+WAITING_FOR_SEARCH_QUERY, WAITING_FOR_TIME, WAITING_FOR_MANUAL_KEYWORD, WAITING_FOR_MIN_SALARY = range(4)
 
 
 class JobBot:
@@ -485,28 +485,38 @@ class JobBot:
         return WAITING_FOR_TIME
 
     async def set_min_salary(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle /set_min_salary <amount> command to store user preference (monthly SGD). Use 0 to clear."""
+        """Handle /set_min_salary command - supply the amount as a message input.
+        For backward compatibility, if an argument is provided (/set_min_salary 3000), process it immediately.
+        """
         user_id = update.effective_user.id
         args = context.args
-        if not args:
-            await update.message.reply_text("Usage: /set_min_salary <amount>\nExample: /set_min_salary 3000 (SGD monthly). Use 0 to clear.")
-            return
-        try:
-            amount = int(args[0])
-            if amount < 0:
-                raise ValueError()
-        except Exception:
-            await update.message.reply_text("❌ Invalid amount. Please provide a positive integer (SGD) or 0 to clear.")
+        if args:
+            # Backward compatibility: parse immediate argument
+            try:
+                amount = int(args[0])
+                if amount < 0:
+                    raise ValueError()
+            except Exception:
+                await update.message.reply_text("❌ Invalid amount. Please provide a positive integer (SGD) or 0 to clear.")
+                return
+
+            if amount == 0:
+                self.db.update_user_min_salary(user_id, None)
+                await update.message.reply_text("✅ Monthly minimum salary filter cleared.")
+                return
+
+            self.db.update_user_min_salary(user_id, amount)
+            await update.message.reply_text(f"✅ Minimum monthly salary filter set to ${amount} SGD.")
             return
 
-        if amount == 0:
-            self.db.update_user_min_salary(user_id, None)
-            await update.message.reply_text("✅ Monthly minimum salary filter cleared.")
-            return
-
-        # Valid positive integer
-        self.db.update_user_min_salary(user_id, amount)
-        await update.message.reply_text(f"✅ Minimum monthly salary filter set to ${amount} SGD.")
+        # No argument: start conversation to accept the amount via text
+        await update.message.reply_text(
+            "💸 *Set Minimum Monthly Salary (SGD)*\n\n"
+            "Send a whole number amount, e.g., `3000`. Send `0` to clear the value.\n\n"
+            "Send /cancel to cancel.",
+            parse_mode=ParseMode.MARKDOWN
+        )
+        return WAITING_FOR_MIN_SALARY
     
     async def process_time_input(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Process the time input from user."""
@@ -534,6 +544,27 @@ class JobBot:
             f"✅ Daily digest time set to *{time_str}* (Singapore Time)",
             parse_mode=ParseMode.MARKDOWN
         )
+        return ConversationHandler.END
+
+    async def process_min_salary_input(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Process user's min salary conversation input."""
+        user_id = update.effective_user.id
+        text = update.message.text.strip()
+        try:
+            amount = int(text)
+            if amount < 0:
+                raise ValueError()
+        except Exception:
+            await update.message.reply_text("❌ Invalid amount. Please send a positive integer (SGD) or 0 to clear.")
+            return WAITING_FOR_MIN_SALARY
+
+        if amount == 0:
+            self.db.update_user_min_salary(user_id, None)
+            await update.message.reply_text("✅ Monthly minimum salary filter cleared.")
+            return ConversationHandler.END
+
+        self.db.update_user_min_salary(user_id, amount)
+        await update.message.reply_text(f"✅ Minimum monthly salary filter set to ${amount} SGD.")
         return ConversationHandler.END
     
     async def cancel_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -803,10 +834,22 @@ class JobBot:
             },
             fallbacks=[CommandHandler("cancel", self.cancel_command)],
         )
+
+        # Conversation handler for /set_min_salary (similar to /set_time)
+        set_min_salary_handler = ConversationHandler(
+            entry_points=[CommandHandler("set_min_salary", self.set_min_salary)],
+            states={
+                WAITING_FOR_MIN_SALARY: [
+                    MessageHandler(filters.TEXT & ~filters.COMMAND, self.process_min_salary_input)
+                ],
+            },
+            fallbacks=[CommandHandler("cancel", self.cancel_command)],
+        )
         
         # Add conversation handlers
         application.add_handler(search_handler)
         application.add_handler(set_time_handler)
+        application.add_handler(set_min_salary_handler)
         # Add manual keyword handler
         add_keyword_handler = ConversationHandler(
             entry_points=[CommandHandler("add_keyword", self.add_keyword_command)],
@@ -821,7 +864,7 @@ class JobBot:
         application.add_handler(CommandHandler("start", self.start_command))
         application.add_handler(CommandHandler("more", self.more_command))
         application.add_handler(CommandHandler("view_keywords", self.view_keywords_command))
-        application.add_handler(CommandHandler("set_min_salary", self.set_min_salary))
+        # `set_min_salary` is handled by a ConversationHandler (set_min_salary_handler) above
         application.add_handler(CommandHandler("digest_now", self.digest_now))
         application.add_handler(CommandHandler("reset_profile", self.reset_profile_command))
         # `add_keyword` is registered as a ConversationHandler; don't add a plain command handler here to avoid duplicate handling.
