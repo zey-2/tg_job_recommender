@@ -65,7 +65,7 @@ class JobBot:
         
         message = f"*{title}*\n"
         message += f"🏢 {company}\n"
-        message += f"📍 {location}"
+        # message += f"📍 {location}"
         message += salary_str
         
         if description:
@@ -267,10 +267,8 @@ class JobBot:
             # Log as shown
             self.db.log_interaction(user_id, job_id, 'shown')
             
-            # Format and send
-            explanation = f"Match score: {score:.1f}"
-            if matched:
-                explanation += f" • Matched: {', '.join(matched[:3])}"
+            # Format and send (do not include raw numeric score; show matched keywords only)
+            explanation = f"Matched: {', '.join(matched[:3])}" if matched else None
             
             message = self.format_job_message(job, explanation)
             keyboard = self.create_job_keyboard(job_id)
@@ -335,8 +333,8 @@ class JobBot:
         await update.message.reply_text(
             "🔍 *Search for Jobs*\n\n"
             "Please send me the keywords you want to search for.\n\n"
-            "Example: `pastry baker`\n"
-            "Example: `food delivery`\n\n"
+            "Example: `pastry`\n"
+            "Example: `delivery`\n\n"
             "Send /cancel to cancel the search.",
             parse_mode=ParseMode.MARKDOWN
         )

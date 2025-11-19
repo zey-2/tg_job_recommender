@@ -94,3 +94,7 @@ REDIS_URL: Optional[str] = os.getenv("REDIS_URL")
 ENCOURAGEMENT_ENABLED = _str2bool(os.getenv("ENCOURAGEMENT_ENABLED", "1"), True)
 ENCOURAGEMENT_CACHE_DAYS = int(os.getenv("ENCOURAGEMENT_CACHE_DAYS", "7"))
 ENCOURAGEMENT_MAX_TOKENS = int(os.getenv("ENCOURAGEMENT_MAX_TOKENS", "120"))
+
+# Optional comma-separated company blocklist (case-insensitive). Useful for filtering companies
+# which produce malformed or inconsistent job data, e.g. 'MARINA BAY SANDS'
+COMPANY_BLOCKLIST = [name.strip() for name in os.getenv("COMPANY_BLOCKLIST", "MARINA BAY SANDS").split(',') if name.strip()]

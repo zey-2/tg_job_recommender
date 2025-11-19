@@ -176,6 +176,27 @@ class FindSGJobsClient:
                     logger.warning("[FINDSGJOBS] Expected redirect_url but it is missing from job item")
             # Normalize jobs
             normalized_jobs = [self._normalize_job(item) for item in results]
+            # Filter out blocklisted companies (case-insensitive) defined in config.COMPANY_BLOCKLIST
+            try:
+                blocklist = {b.strip().upper() for b in getattr(config, 'COMPANY_BLOCKLIST', []) if b}
+            except Exception:
+                blocklist = set()
+
+            def _company_display_name_from_norm(job_item: Dict) -> str:
+                comp = job_item.get('company')
+                if isinstance(comp, dict):
+                    return (comp.get('display_name') or '').strip().upper()
+                if isinstance(comp, str):
+                    return comp.strip().upper()
+                return ''
+
+            if blocklist:
+                before = len(normalized_jobs)
+                normalized_jobs = [j for j in normalized_jobs if _company_display_name_from_norm(j) not in blocklist]
+                after = len(normalized_jobs)
+                if before != after:
+                    logger.info(f"[FINDSGJOBS] Filtered out {before-after} jobs due to company blocklist")
+
             return normalized_jobs
         except requests.exceptions.RequestException as e:
             logger.error(f"[FINDSGJOBS] Error fetching jobs: {e}")
@@ -205,7 +226,8 @@ class FindSGJobsClient:
             user = self.db.get_user(user_id)
             min_salary = user.get('min_salary_preference') if user else None
         # Ensure we request a meaningful page size (at least DEFAULT_PER_PAGE_COUNT) to fetch more candidates
-        per_page = max(limit, self.DEFAULT_PER_PAGE_COUNT) if limit else self.DEFAULT_PER_PAGE_COUNT
+        # Request more candidates (double the requested limit) to account for any filtered/blocklisted jobs
+        per_page = max(limit * 2, self.DEFAULT_PER_PAGE_COUNT) if (limit is not None) else self.DEFAULT_PER_PAGE_COUNT
         return self.search_jobs(keywords=kw, min_salary=min_salary, per_page_count=per_page, context=context)
 
     def get_recent_jobs(self, limit: int = 50, user_id: int = None, context=None) -> List[Dict]:
@@ -213,7 +235,8 @@ class FindSGJobsClient:
         if user_id:
             user = self.db.get_user(user_id)
             min_salary = user.get('min_salary_preference') if user else None
-        per_page = max(limit, self.DEFAULT_PER_PAGE_COUNT) if limit else self.DEFAULT_PER_PAGE_COUNT
+        # Request more candidates (double the requested limit) to account for any filtered/blocklisted jobs
+        per_page = max(limit * 2, self.DEFAULT_PER_PAGE_COUNT) if (limit is not None) else self.DEFAULT_PER_PAGE_COUNT
         return self.search_jobs(keywords='', min_salary=min_salary, per_page_count=per_page, context=context)
 
     def search_custom(self, query: str, limit: int = 50, user_id: int = None, context=None) -> List[Dict]:
@@ -221,7 +244,8 @@ class FindSGJobsClient:
         if user_id:
             user = self.db.get_user(user_id)
             min_salary = user.get('min_salary_preference') if user else None
-        per_page = max(limit, self.DEFAULT_PER_PAGE_COUNT) if limit else self.DEFAULT_PER_PAGE_COUNT
+        # Request more candidates (double the requested limit) to account for any filtered/blocklisted jobs
+        per_page = max(limit * 2, self.DEFAULT_PER_PAGE_COUNT) if (limit is not None) else self.DEFAULT_PER_PAGE_COUNT
         return self.search_jobs(keywords=query, min_salary=min_salary, per_page_count=per_page, context=context)
 
 
