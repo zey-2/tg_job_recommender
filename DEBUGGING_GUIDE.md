@@ -19,7 +19,9 @@ Comprehensive logging has been added to help debug the "No jobs found" issue aft
 ### Key Log Tags
 
 #### `[MORE]` - /more Command Flow
+
 Tracks the entire flow when user requests more jobs:
+
 ```
 [MORE] User {user_id} requested more jobs
 [MORE] User {user_id} has {count} total keywords, {count} positive: [list]
@@ -32,7 +34,9 @@ Tracks the entire flow when user requests more jobs:
 ```
 
 #### `[ADZUNA]` - API Interactions
+
 Tracks all Adzuna API calls:
+
 ```
 [ADZUNA] search_by_keywords called with {count} keywords: [list], limit={n}
 [ADZUNA] get_recent_jobs called with limit={n}, max_days_old={n}
@@ -42,7 +46,9 @@ Tracks all Adzuna API calls:
 ```
 
 #### `[RANK]` - Job Ranking Logic
+
 Tracks job scoring and filtering:
+
 ```
 [RANK] Starting to rank {count} jobs for user {user_id}
 [RANK] User {user_id} has {count} keywords
@@ -55,7 +61,9 @@ Tracks job scoring and filtering:
 ```
 
 #### `[SCORE]` - Individual Job Scoring (DEBUG level)
+
 Detailed scoring for each job:
+
 ```
 [SCORE] Job {job_id} hard rejected due to negative keyword '{keyword}' (weight: {weight})
 [SCORE] Job {job_id} soft negative '{keyword}' (weight: {weight}, new score: {score})
@@ -70,11 +78,12 @@ Detailed scoring for each job:
 ### Issue: "No jobs found right now"
 
 **Possible Causes:**
+
 1. Adzuna API returned 0 jobs
    - Check `[ADZUNA] Received 0 jobs from API`
    - API might be down or keywords are too specific
-   
 2. All jobs filtered out as "recently shown"
+
    - Check `[RANK] Results for user {user_id}: 0 jobs passed, {high_number} excluded (recent)`
    - User has seen all available jobs in the last 7 days
    - Solution: Use `/search` or wait for new jobs
@@ -82,11 +91,12 @@ Detailed scoring for each job:
 3. All jobs have negative scores
    - Check `[RANK] Results for user {user_id}: 0 jobs passed, 0 excluded (recent), {high_number} excluded (negative score)`
    - User's negative keywords are too broad
-   - Solution: Review `/keywords` and like more jobs to balance profile
+   - Solution: Review `/view_keywords` and like more jobs to balance profile
 
 ### Issue: "You've seen all recent matches"
 
 This occurs when:
+
 - Jobs are returned from Adzuna
 - But all are filtered out during ranking (recently shown + negative scores)
 - Check the ranking logs to see the breakdown
@@ -107,6 +117,7 @@ This occurs when:
 ## Viewing Logs
 
 ### Real-time monitoring:
+
 ```bash
 # PowerShell
 Get-Content bot.log -Wait -Tail 50
@@ -116,6 +127,7 @@ tail -f bot.log
 ```
 
 ### Filter by user:
+
 ```bash
 # PowerShell
 Select-String -Path bot.log -Pattern "User 123456789"
@@ -125,6 +137,7 @@ grep "User 123456789" bot.log
 ```
 
 ### Filter by specific issue:
+
 ```bash
 # See all ranking results
 grep "[RANK] Results" bot.log
@@ -138,6 +151,7 @@ grep "[ADZUNA] Received" bot.log
 To enable DEBUG level logging (very verbose, shows every job scoring):
 
 Edit `main.py`:
+
 ```python
 logging.basicConfig(
     level=logging.DEBUG,  # Change from INFO to DEBUG

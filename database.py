@@ -49,6 +49,7 @@ class Database:
                 keyword TEXT NOT NULL,
                 weight REAL DEFAULT 1.0,
                 is_negative INTEGER DEFAULT 0,
+                source TEXT DEFAULT 'auto',
                 rationale TEXT,
                 created_at TEXT DEFAULT CURRENT_TIMESTAMP,
                 updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
@@ -93,6 +94,16 @@ class Database:
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_users_digest_time ON users(next_digest_at)")
         
         self.conn.commit()
+        # Ensure 'source' column exists for compatibility with older DBs
+        cursor.execute("PRAGMA table_info(user_keywords)")
+        cols = [row[1] for row in cursor.fetchall()]
+        if 'source' not in cols:
+            try:
+                cursor.execute("ALTER TABLE user_keywords ADD COLUMN source TEXT DEFAULT 'auto'")
+                self.conn.commit()
+            except Exception:
+                # If alter table fails, log silently and continue
+                pass
     
     # User operations
     def create_user(self, user_id: int, username: str = None, prefs: dict = None) -> bool:
@@ -269,19 +280,26 @@ class Database:
         return [dict(row) for row in cursor.fetchall()]
     
     def upsert_keyword(self, user_id: int, keyword: str, weight: float, 
-                      is_negative: bool = False, rationale: str = None):
+                      is_negative: bool = False, rationale: str = None, source: str = 'auto'):
         """Insert or update a keyword."""
         cursor = self.conn.cursor()
+        # If inserting or updating, avoid auto-generated updates overwriting manual keywords.
+        # If existing source is 'manual' and new source is 'auto', keep existing values.
+        # Enforce manual keywords are always positive
+        if source == 'manual':
+            is_negative = False
+
         cursor.execute("""
-            INSERT INTO user_keywords (user_id, keyword, weight, is_negative, rationale)
-            VALUES (?, ?, ?, ?, ?)
-            ON CONFLICT(user_id, keyword) 
-            DO UPDATE SET 
-                weight = excluded.weight,
-                is_negative = excluded.is_negative,
-                rationale = excluded.rationale,
+            INSERT INTO user_keywords (user_id, keyword, weight, is_negative, rationale, source)
+            VALUES (?, ?, ?, ?, ?, ?)
+            ON CONFLICT(user_id, keyword)
+            DO UPDATE SET
+                weight = CASE WHEN source = 'manual' AND excluded.source = 'auto' THEN weight ELSE excluded.weight END,
+                is_negative = CASE WHEN source = 'manual' AND excluded.source = 'auto' THEN is_negative ELSE excluded.is_negative END,
+                rationale = CASE WHEN source = 'manual' AND excluded.source = 'auto' THEN rationale ELSE excluded.rationale END,
+                source = CASE WHEN source = 'manual' AND excluded.source = 'auto' THEN source ELSE excluded.source END,
                 updated_at = CURRENT_TIMESTAMP
-        """, (user_id, keyword.lower(), weight, 1 if is_negative else 0, rationale))
+        """, (user_id, keyword.lower(), weight, 1 if is_negative else 0, rationale, source))
         self.conn.commit()
     
     def update_keyword_weight(self, user_id: int, keyword: str, delta: float):
@@ -305,16 +323,70 @@ class Database:
             WHERE user_id = ? AND keyword IN ({placeholders})
         """, [user_id] + [k.lower() for k in keywords])
         self.conn.commit()
+
+    def delete_keyword(self, user_id: int, keyword: str):
+        """Delete a single keyword for user."""
+        self.delete_keywords(user_id, [keyword])
+
+    def get_keyword_by_id(self, user_id: int, keyword_id: int) -> Optional[Dict]:
+        """Get a keyword row by its id for a given user."""
+        cursor = self.conn.cursor()
+        cursor.execute("SELECT * FROM user_keywords WHERE id = ? AND user_id = ?", (keyword_id, user_id))
+        row = cursor.fetchone()
+        return dict(row) if row else None
+
+    def delete_keyword_by_id(self, user_id: int, keyword_id: int):
+        """Delete a keyword by its id for a given user."""
+        cursor = self.conn.cursor()
+        cursor.execute("DELETE FROM user_keywords WHERE id = ? AND user_id = ?", (keyword_id, user_id))
+        self.conn.commit()
+
+    def clear_auto_keywords(self, user_id: int):
+        """Delete all auto-generated keywords for the user."""
+        cursor = self.conn.cursor()
+        cursor.execute("""
+            DELETE FROM user_keywords
+            WHERE user_id = ? AND (source IS NULL OR source != 'manual')
+        """, (user_id,))
+        self.conn.commit()
+
+    def clear_manual_keywords(self, user_id: int):
+        """Delete all manual keywords for the user."""
+        cursor = self.conn.cursor()
+        cursor.execute("""
+            DELETE FROM user_keywords
+            WHERE user_id = ? AND source = 'manual'
+        """, (user_id,))
+        self.conn.commit()
     
     def decay_keywords(self, user_id: int, decay_factor: float):
         """Apply decay to all keywords."""
         cursor = self.conn.cursor()
+        # Do not decay manual keywords (they have fixed weight)
         cursor.execute("""
             UPDATE user_keywords 
             SET weight = weight * ?, updated_at = CURRENT_TIMESTAMP
-            WHERE user_id = ?
+            WHERE user_id = ? AND (source IS NULL OR source != 'manual')
         """, (decay_factor, user_id))
         self.conn.commit()
+
+    def count_manual_keywords(self, user_id: int, positive_only: bool = True) -> int:
+        """Return the count of manual keywords for a user. Optionally only positive ones."""
+        cursor = self.conn.cursor()
+        if positive_only:
+            cursor.execute("SELECT COUNT(*) FROM user_keywords WHERE user_id = ? AND source = 'manual' AND is_negative = 0", (user_id,))
+        else:
+            cursor.execute("SELECT COUNT(*) FROM user_keywords WHERE user_id = ? AND source = 'manual'", (user_id,))
+        return cursor.fetchone()[0]
+
+    def count_auto_keywords(self, user_id: int, positive_only: bool = True) -> int:
+        """Return the count of auto-generated keywords for a user. Optionally only positive ones."""
+        cursor = self.conn.cursor()
+        if positive_only:
+            cursor.execute("SELECT COUNT(*) FROM user_keywords WHERE user_id = ? AND (source IS NULL OR source != 'manual') AND is_negative = 0", (user_id,))
+        else:
+            cursor.execute("SELECT COUNT(*) FROM user_keywords WHERE user_id = ? AND (source IS NULL OR source != 'manual')", (user_id,))
+        return cursor.fetchone()[0]
     
     # Job operations
     def upsert_job(self, job_data: Dict):

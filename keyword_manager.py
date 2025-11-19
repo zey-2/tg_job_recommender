@@ -216,6 +216,10 @@ class KeywordManager:
                     if match:
                         matched_existing.append(kw)
                 for kw in matched_existing:
+                    # Do not update weight for manual keywords - they have fixed weight
+                    if kw.get('source') == 'manual':
+                        logger.debug(f"Skipping weight update for manual keyword: {kw['keyword']}")
+                        continue
                     self.db.update_keyword_weight(user_id, kw['keyword'], direct_delta)
                     kw['weight'] += direct_delta
                     kw['is_negative'] = kw['weight'] < config.NEGATIVE_PROMOTE_AT
@@ -265,13 +269,18 @@ class KeywordManager:
                 new_weight = existing['weight'] + delta
                 is_negative = new_weight < config.NEGATIVE_PROMOTE_AT
                 
-                self.db.upsert_keyword(
-                    user_id=user_id,
-                    keyword=keyword,
-                    weight=new_weight,
-                    is_negative=is_negative,
-                    rationale=rationale
-                )
+                # If existing keyword is manual, do not overwrite or change weight from LLM suggestions
+                if existing.get('source') == 'manual':
+                    logger.debug("Skipping LLM overwrite for manual keyword: %s", keyword)
+                else:
+                    self.db.upsert_keyword(
+                        user_id=user_id,
+                        keyword=keyword,
+                        weight=new_weight,
+                        is_negative=is_negative,
+                        rationale=rationale,
+                        source='auto'
+                    )
                 
                 # Keep local copy in sync for subsequent iterations
                 existing['weight'] = new_weight
@@ -314,12 +323,14 @@ class KeywordManager:
                     keyword=keyword,
                     weight=initial_weight,
                     is_negative=is_negative,
-                    rationale=rationale
+                    rationale=rationale,
+                    source='auto'
                 )
                 current_keywords.append({
                     'keyword': keyword,
                     'weight': initial_weight,
-                    'is_negative': is_negative
+                    'is_negative': is_negative,
+                    'source': 'auto'
                 })
         
         # Apply decay to all keywords
@@ -332,19 +343,30 @@ class KeywordManager:
         """Keep only top K keywords plus active negatives."""
         all_keywords = self.db.get_user_keywords(user_id)
         
+
         # Separate positive and negative
-        positive = [kw for kw in all_keywords if not kw['is_negative']]
+        positive_all = [kw for kw in all_keywords if not kw['is_negative']]
         negative = [kw for kw in all_keywords if kw['is_negative']]
-        
-        # Keep top K positive
-        positive.sort(key=lambda x: x['weight'], reverse=True)
-        keep_positive = positive[:config.TOP_K]
+
+        # Separate manual and auto positives
+        manual_positive = [kw for kw in positive_all if kw.get('source') == 'manual']
+        auto_positive = [kw for kw in positive_all if kw.get('source') != 'manual']
+
+        # Keep most recent manual positives up to MAX_MANUAL_KEYWORDS
+        manual_positive.sort(key=lambda x: x.get('updated_at') or x.get('created_at') or 0, reverse=True)
+        keep_manual = manual_positive[:config.MAX_MANUAL_KEYWORDS]
+
+        # Keep top auto positives up to the configured maximum (TOP_K - MAX_MANUAL_KEYWORDS)
+        max_auto = max(config.TOP_K - config.MAX_MANUAL_KEYWORDS, 0)
+        num_auto_keep = max_auto
+        auto_positive.sort(key=lambda x: x['weight'], reverse=True)
+        keep_auto = auto_positive[:num_auto_keep]
         
         # Keep all negatives with weight below threshold
         keep_negative = [kw for kw in negative if kw['weight'] < config.NEGATIVE_PROMOTE_AT]
         
         # Identify keywords to delete
-        keep_keywords = set(kw['keyword'] for kw in keep_positive + keep_negative)
+        keep_keywords = set(kw['keyword'] for kw in keep_manual + keep_auto + keep_negative)
         all_keyword_names = set(kw['keyword'] for kw in all_keywords)
         to_delete = all_keyword_names - keep_keywords
         
@@ -358,18 +380,34 @@ class KeywordManager:
         if not keywords:
             return "You don't have any keywords yet. Like or dislike some jobs to build your profile!"
         
-        positive = [kw for kw in keywords if not kw['is_negative']][:config.TOP_K]
+        positive = [kw for kw in keywords if not kw['is_negative']]
         negative = [kw for kw in keywords if kw['is_negative']][:5]
+
+        manual_positive = [kw for kw in positive if kw.get('source') == 'manual']
+        auto_positive = [kw for kw in positive if kw.get('source') != 'manual']
+
+        manual_count = len(manual_positive)
+        auto_count = len(auto_positive)
+        # Limit display counts per section
+        manual_display = manual_positive[:config.MAX_MANUAL_KEYWORDS]
+        auto_display = auto_positive[:max(config.TOP_K - config.MAX_MANUAL_KEYWORDS, config.TOP_K)]
         
         lines = ["🔑 *Your Top Keywords*\n"]
         
-        if positive:
+        if manual_display or auto_display:
             lines.append("✅ *Positive:*")
-            for kw in positive:
+            if manual_display:
+                lines.append(f"\n✍️ *Manual:* ({manual_count}/{config.MAX_MANUAL_KEYWORDS})")
+                for kw in manual_display:
+                    star_display = "⭐" * max(min(int(kw['weight'] / 0.5), 5), 1)
+                    lines.append(f"{star_display} {kw['keyword']}")
+            if auto_display:
+                lines.append(f"\n🤖 *Auto:* ({auto_count}/{max(config.TOP_K - config.MAX_MANUAL_KEYWORDS, config.TOP_K)})")
+                for kw in auto_display:
                 # Use star rating instead of exact weight
-                stars = min(int(kw['weight'] / 0.5), 5)  # Max 5 stars
-                star_display = "⭐" * max(stars, 1)
-                lines.append(f"{star_display} {kw['keyword']}")
+                    stars = min(int(kw['weight'] / 0.5), 5)  # Max 5 stars
+                    star_display = "⭐" * max(stars, 1)
+                    lines.append(f"{star_display} {kw['keyword']}")
         
         if negative:
             lines.append("\n❌ *Negative:*")

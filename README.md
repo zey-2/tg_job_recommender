@@ -58,7 +58,9 @@ python main.py digest
 - `/start` - Register and get welcome message
 - `/more` - Get 2-3 personalized job recommendations
 - `/search <keywords>` - Search for specific jobs
-- `/keywords` - View your adaptive keyword profile
+- `/view_keywords` - View your adaptive keyword profile
+- `/add_keyword` - Add a manual positive keyword to your profile (max 4)
+- `/keyword_management` - Manage and remove keywords (delete one, clear auto/manual/all with confirmation)
 - `/set_time <HH:MM>` - Set daily notification time (30-min slots)
 - `/toggle_notifications` - Turn daily digest on/off
 - `/help` - Show help message
@@ -87,6 +89,7 @@ tg_job_recommender/
 3. **Profile Update**: Keywords that appeared in the job are immediately reinforced/penalized, then the LLM suggests new terms
 4. **Job Scoring**: Future jobs are ranked by keyword match
 5. **Adaptive Learning**: Weights decay over time to stay current
+6. **Manual Keywords**: Users can add up to 4 manual positive keywords; these are considered fixed (no decay) and cannot be overwritten by automatically generated keywords. Auto keywords are capped at 4, keeping a clean 4 manual + 4 auto policy.
 
 ## Deployment (Cloud Run)
 

@@ -3,6 +3,7 @@
 ## Step 1: Install Dependencies
 
 Open PowerShell and run:
+
 ```powershell
 pip install -r requirements.txt
 ```
@@ -10,6 +11,7 @@ pip install -r requirements.txt
 ## Step 2: Set Up Environment Variables
 
 1. Copy `.env.example` to `.env`:
+
 ```powershell
 Copy-Item .env.example .env
 ```
@@ -35,20 +37,24 @@ Once the bot is running, open Telegram and:
 2. Send `/start` to register
 3. Send `/more` to get job recommendations
 4. Like or dislike jobs to train your profile
-5. Send `/keywords` to see your adaptive profile
+5. Send `/view_keywords` to see your adaptive profile
 
 ## Troubleshooting
 
 ### Import Errors
+
 If you see import errors, make sure you've installed all dependencies:
+
 ```powershell
 pip install python-telegram-bot openai requests python-dotenv pytz
 ```
 
 ### Database Errors
+
 The bot will automatically create `job_bot.db` on first run.
 
 ### API Errors
+
 - Check that your `.env` file has valid credentials
 - Ensure you have internet connection
 - Verify API quotas haven't been exceeded
@@ -57,4 +63,4 @@ The bot will automatically create `job_bot.db` on first run.
 
 - Use `/search python developer` to test job search
 - Set notification time with `/set_time 09:00`
-- View your profile with `/keywords`
+- View your profile with `/view_keywords`

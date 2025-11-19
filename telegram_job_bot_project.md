@@ -25,7 +25,7 @@ lightweight **LLM keyword learning loop**, and adaptive scoring logic.
   - Existing keyword → bump or penalize its weight (`LIKE_BOOST`/`DISLIKE_PENALTY`) and update the rationale history.
   - New keyword → insert with a seed weight proportional to the LLM confidence (e.g., 0.5 for neutral, 1.0 for strong positive) and polarity derived from the user reaction.
   - Conflicting polarity suggestions are resolved by comparing cumulative weights and demoting items below `NEGATIVE_PROMOTE_AT`.
-- Ranking: re-normalize weights, keep the top `TOP_K` positive terms plus any active negatives, and persist both the scores and concise rationales for `/keywords`.
+- Ranking: re-normalize weights, keep the top `TOP_K` positive terms plus any active negatives, and persist both the scores and concise rationales for `/view_keywords`.
 
 ### 📈 Recommendation Logic
 
@@ -40,10 +40,10 @@ Jobs are scored with a hybrid pipeline:
 ### 💬 Telegram UX
 
 - Inline job cards: \[View\] \[👍 Like\] \[👎 Dislike\]
- - `/start` or `/help` → register user (if new) or resend the quick-start menu
+- `/start` or `/help` → register user (if new) or resend the quick-start menu
 - `/more` → 2--3 instant recommendations
 - `/search <keywords>` → ad-hoc query for jobs matching the supplied terms (ignores the adaptive profile)
-- `/keywords` → shows current Top 8 keywords
+- `/view_keywords` → shows current Top 8 keywords
 - `/prefs` → user filter preferences (optional)
 - `/set_time` → set preferred daily notification time in 30-minute slots (09:00, 09:30, …; default: 09:00 SGT)
 - `/toggle_notifications` → toggle daily digest notifications on/off

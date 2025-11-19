@@ -21,7 +21,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # Conversation states
-WAITING_FOR_SEARCH_QUERY, WAITING_FOR_TIME = range(2)
+WAITING_FOR_SEARCH_QUERY, WAITING_FOR_TIME, WAITING_FOR_MANUAL_KEYWORD = range(3)
 
 
 class JobBot:
@@ -105,7 +105,9 @@ class JobBot:
             "📝 <b>Available Commands:</b>\n"
             "/more - Get 2-3 personalized recommendations (use multiple times)\n"
             "/search - Search for specific jobs\n"
-            "/keywords - View your keyword profile\n"
+            "/view_keywords - View your keyword profile\n"
+            "/add_keyword - Add a manual keyword to your profile\n"
+            "/keyword_management - Manage and remove keywords\n"
             "/set_time - Set notification time\n"
             "/toggle_notifications - Turn daily digest on/off\n"
             "/help - Show this help message"
@@ -122,7 +124,9 @@ class JobBot:
             "/more - Get 2-3 personalized recommendations\n"
             "/search - Search for specific jobs\n\n"
             "⚙️ *Profile & Settings:*\n"
-            "/keywords - View your adaptive keywords\n"
+            "/view_keywords - View your adaptive keywords\n"
+            "/add_keyword - Add a manual keyword (positive only)\n"
+            "/keyword_management - Manage and remove keywords (delete, clear)\n"
             "/set_time - Set daily notification time (30-min slots)\n"
             "/toggle_notifications - Turn daily digest on/off\n\n"
             "❓ *Other:*\n"
@@ -285,12 +289,61 @@ class JobBot:
         
         return ConversationHandler.END
     
-    async def keywords_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle /keywords command - show user profile."""
+    async def view_keywords_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle /view_keywords command - show user profile."""
         user_id = update.effective_user.id
         
         display = self.keyword_manager.get_top_keywords_display(user_id)
-        await update.message.reply_text(display, parse_mode=ParseMode.MARKDOWN)
+        kb = InlineKeyboardMarkup([[InlineKeyboardButton("🧾 Manage Keywords", callback_data="km:menu")]])
+        await update.message.reply_text(display, parse_mode=ParseMode.MARKDOWN, reply_markup=kb)
+
+    async def add_keyword_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Start flow to add a manual positive keyword."""
+        await update.message.reply_text(
+            "✍️ *Add a Manual Keyword*\n\nSend the keyword you want to add (single word or phrase).\n\nExample: `python`, `machine learning`, `data viz`\n\nSend /cancel to cancel.",
+            parse_mode=ParseMode.MARKDOWN
+        )
+        return WAITING_FOR_MANUAL_KEYWORD
+
+    async def process_manual_keyword_input(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        user_id = update.effective_user.id
+        keyword = update.message.text.strip().lower()
+
+        # Basic validation
+        if len(keyword) < 2 or len(keyword) > 60:
+            await update.message.reply_text("❌ Keyword must be 2-60 characters. Send a different keyword or /cancel.")
+            return WAITING_FOR_MANUAL_KEYWORD
+
+        # Check duplicate and manual slot limit
+        existing = next((kw for kw in self.db.get_user_keywords(user_id) if kw['keyword'] == keyword), None)
+        if existing and existing.get('source') == 'manual':
+            await update.message.reply_text(f"✅ Keyword '{keyword}' is already in your manual keywords.")
+            return ConversationHandler.END
+
+        manual_count = self.db.count_manual_keywords(user_id, positive_only=True)
+        if manual_count >= config.MAX_MANUAL_KEYWORDS:
+            await update.message.reply_text(
+                f"❌ You've reached the maximum of {config.MAX_MANUAL_KEYWORDS} manual keywords. Remove one before adding more."
+            )
+            return ConversationHandler.END
+
+        # Add keyword as manual positive (fixed weight)
+        self.db.upsert_keyword(user_id=user_id, keyword=keyword, weight=1.0, is_negative=False, rationale='Manually added', source='manual')
+
+        await update.message.reply_text(f"✅ Added manual keyword: *{keyword}*", parse_mode=ParseMode.MARKDOWN)
+        return ConversationHandler.END
+
+    async def keyword_management_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Show keyword management menu with inline buttons."""
+        user_id = update.effective_user.id
+        kb = [
+            [InlineKeyboardButton("🗑️ Remove One Keyword", callback_data="km:remove_one")],
+            [InlineKeyboardButton("🤖 Clear All Auto Keywords", callback_data="km:clear_auto")],
+            [InlineKeyboardButton("✍️ Clear All Manual Keywords", callback_data="km:clear_manual")],
+            [InlineKeyboardButton("🧹 Clear All Keywords", callback_data="km:clear_all")],
+            [InlineKeyboardButton("🔙 Back", callback_data="km:cancel")]
+        ]
+        await update.message.reply_text("🧾 *Keyword Management Menu*", reply_markup=InlineKeyboardMarkup(kb), parse_mode=ParseMode.MARKDOWN)
     
     async def set_time_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /set_time command - start time setting conversation."""
@@ -379,13 +432,89 @@ class JobBot:
         
         user_id = update.effective_user.id
         data = query.data
-        
-        # Parse callback data
+        if not data:
+            return
+
+        # Handle keyword management callbacks starting with 'km:'
+        if data.startswith('km:'):
+            parts = data.split(':')
+            cmd = parts[1] if len(parts) > 1 else None
+            logger.info(f"[KM] handling cmd {cmd} for user {user_id}")
+            if cmd == 'menu' or cmd == 'cancel':
+                kb = [
+                    [InlineKeyboardButton("🗑️ Remove One Keyword", callback_data="km:remove_one")],
+                    [InlineKeyboardButton("🤖 Clear All Auto Keywords", callback_data="km:clear_auto")],
+                    [InlineKeyboardButton("✍️ Clear All Manual Keywords", callback_data="km:clear_manual")],
+                    [InlineKeyboardButton("🧹 Clear All Keywords", callback_data="km:clear_all")],
+                    [InlineKeyboardButton("❌ Cancel", callback_data="km:cancel")]
+                ]
+                await query.edit_message_text("🧾 Keyword Management Menu", reply_markup=InlineKeyboardMarkup(kb))
+                return
+            if cmd == 'remove_one':
+                kws = self.db.get_user_keywords(user_id)
+                if not kws:
+                    await query.edit_message_text("You have no keywords.")
+                    return
+                kb = []
+                for kw in kws:
+                    source = kw.get('source') or 'auto'
+                    emoji = '✍️' if source == 'manual' else '🤖'
+                    kb.append([InlineKeyboardButton(f"{emoji} {kw['keyword']}", callback_data=f"km:del:{kw['id']}")])
+                kb.append([InlineKeyboardButton("🔙 Back to menu", callback_data="km:menu")])
+                await query.edit_message_text("Select a keyword to remove:", reply_markup=InlineKeyboardMarkup(kb))
+                return
+            if cmd == 'del' and len(parts) > 2:
+                kid = parts[2]
+                kw = self.db.get_keyword_by_id(user_id, int(kid))
+                if not kw:
+                    await query.edit_message_text("Keyword not found.")
+                    return
+                kb = [
+                    [InlineKeyboardButton("✅ Yes, delete", callback_data=f"km:del_confirm:{kid}"), InlineKeyboardButton("🔙 Back", callback_data="km:menu")]
+                ]
+                await query.edit_message_text(f"⚠️ Delete keyword: *{kw['keyword']}*?", reply_markup=InlineKeyboardMarkup(kb), parse_mode=ParseMode.MARKDOWN)
+                return
+            if cmd == 'del_confirm' and len(parts) > 2:
+                kid = parts[2]
+                kw = self.db.get_keyword_by_id(user_id, int(kid))
+                if not kw:
+                    await query.edit_message_text("Keyword not found.")
+                    return
+                self.db.delete_keyword_by_id(user_id, int(kid))
+                await query.edit_message_text(f"✅ Deleted keyword: {kw['keyword']}")
+                return
+            if cmd == 'clear_auto':
+                kb = [[InlineKeyboardButton("✅ Yes, clear auto keywords", callback_data="km:clear_auto_confirm"), InlineKeyboardButton("🔙 Back", callback_data="km:menu")]]
+                await query.edit_message_text("⚠️ Delete ALL auto-generated keywords?", reply_markup=InlineKeyboardMarkup(kb))
+                return
+            if cmd == 'clear_auto_confirm':
+                self.db.clear_auto_keywords(user_id)
+                await query.edit_message_text("✅ Cleared auto-generated keywords.")
+                return
+            if cmd == 'clear_manual':
+                kb = [[InlineKeyboardButton("✅ Yes, clear manual keywords", callback_data="km:clear_manual_confirm"), InlineKeyboardButton("🔙 Back", callback_data="km:menu")]]
+                await query.edit_message_text("⚠️ Delete ALL manual keywords?", reply_markup=InlineKeyboardMarkup(kb))
+                return
+            if cmd == 'clear_manual_confirm':
+                self.db.clear_manual_keywords(user_id)
+                await query.edit_message_text("✅ Cleared manual keywords.")
+                return
+            if cmd == 'clear_all':
+                kb = [[InlineKeyboardButton("✅ Yes, clear all keywords", callback_data="km:clear_all_confirm"), InlineKeyboardButton("🔙 Back", callback_data="km:menu")]]
+                await query.edit_message_text("⚠️ Delete ALL keywords (manual + auto)?", reply_markup=InlineKeyboardMarkup(kb))
+                return
+            if cmd == 'clear_all_confirm':
+                self.db.clear_auto_keywords(user_id)
+                self.db.clear_manual_keywords(user_id)
+                await query.edit_message_text("✅ Cleared all keywords.")
+                return
+            await query.edit_message_text("Unknown keyword management command.")
+            return
+
+        # Parse like/dislike callback data
         if ':' not in data:
             return
-        
         action, job_id = data.split(':', 1)
-        
         if action not in ['like', 'dislike']:
             return
         
@@ -439,7 +568,9 @@ class JobBot:
                 BotCommand("start", "Start the bot and get welcome message"),
                 BotCommand("more", "Get personalized job recommendations"),
                 BotCommand("search", "Search for jobs with specific keywords"),
-                BotCommand("keywords", "View your keyword profile"),
+                BotCommand("view_keywords", "View your keyword profile"),
+                BotCommand("add_keyword", "Add a manual keyword to your profile"),
+                BotCommand("keyword_management", "Manage and remove keywords"),
                 BotCommand("set_time", "Set daily notification time"),
                 BotCommand("toggle_notifications", "Turn daily digest on/off"),
                 BotCommand("help", "Show help and available commands"),
@@ -482,11 +613,22 @@ class JobBot:
         # Add conversation handlers
         application.add_handler(search_handler)
         application.add_handler(set_time_handler)
+        # Add manual keyword handler
+        add_keyword_handler = ConversationHandler(
+            entry_points=[CommandHandler("add_keyword", self.add_keyword_command)],
+            states={
+                WAITING_FOR_MANUAL_KEYWORD: [MessageHandler(filters.TEXT & ~filters.COMMAND, self.process_manual_keyword_input)]
+            },
+            fallbacks=[CommandHandler("cancel", self.cancel_command)],
+        )
+        application.add_handler(add_keyword_handler)
         
         # Other command handlers
         application.add_handler(CommandHandler("start", self.start_command))
         application.add_handler(CommandHandler("more", self.more_command))
-        application.add_handler(CommandHandler("keywords", self.keywords_command))
+        application.add_handler(CommandHandler("view_keywords", self.view_keywords_command))
+        # `add_keyword` is registered as a ConversationHandler; don't add a plain command handler here to avoid duplicate handling.
+        application.add_handler(CommandHandler("keyword_management", self.keyword_management_command))
         application.add_handler(CommandHandler("toggle_notifications", self.toggle_notifications_command))
         application.add_handler(CommandHandler("help", self.help_command))
         
