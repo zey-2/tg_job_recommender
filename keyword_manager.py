@@ -181,8 +181,8 @@ class KeywordManager:
         # Get recently shown jobs if needed
         recent_job_ids = set()
         if exclude_recent:
-            recent_job_ids = set(self.db.get_recently_shown_jobs(user_id, days=7))
-            logger.info(f"[RANK] User {user_id} has {len(recent_job_ids)} recently shown jobs (last 7 days)")
+            recent_job_ids = set(self.db.get_recently_shown_jobs(user_id, days=config.EXCLUDE_RECENT_DAYS))
+            logger.info(f"[RANK] User {user_id} has {len(recent_job_ids)} recently shown jobs (last {config.EXCLUDE_RECENT_DAYS} days)")
             if recent_job_ids:
                 logger.debug(f"[RANK] Recent job IDs: {list(recent_job_ids)[:5]}... (showing first 5)")
         

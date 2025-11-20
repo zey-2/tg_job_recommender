@@ -623,16 +623,16 @@ class Database:
         return [dict(row) for row in cursor.fetchall()]
     
     def get_recently_shown_jobs(self, user_id: int, days: int = 7) -> List[str]:
-        """Get job IDs that user has interacted with recently (liked or disliked).
+        """Get job IDs that user has interacted with recently (shown, liked, or disliked).
         
-        We only exclude jobs that were explicitly liked or disliked, not just shown.
-        This prevents the /more command from running out of jobs too quickly.
+        This excludes any jobs that were shown to the user in the last N days,
+        ensuring variety in recommendations.
         """
         cursor = self.conn.cursor()
         cutoff = (datetime.now() - timedelta(days=days)).isoformat()
         cursor.execute("""
             SELECT DISTINCT job_id FROM interactions 
-            WHERE user_id = ? AND timestamp >= ? AND action IN ('like', 'dislike')
+            WHERE user_id = ? AND timestamp >= ? AND action IN ('shown', 'like', 'dislike')
         """, (user_id, cutoff))
         return [row[0] for row in cursor.fetchall()]
 

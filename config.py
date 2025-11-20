@@ -48,6 +48,8 @@ DISLIKE_PENALTY = float(os.getenv("DISLIKE_PENALTY", -1.0))
 NEGATIVE_PROMOTE_AT = float(os.getenv("NEGATIVE_PROMOTE_AT", -2.0))
 MAX_NEW_POSITIVE_PER_FEEDBACK = int(os.getenv("MAX_NEW_POSITIVE_PER_FEEDBACK", 3))
 MAX_NEW_NEGATIVE_PER_FEEDBACK = int(os.getenv("MAX_NEW_NEGATIVE_PER_FEEDBACK", 2))
+# Number of days to exclude recently shown jobs from recommendations
+EXCLUDE_RECENT_DAYS = int(os.getenv("EXCLUDE_RECENT_DAYS", 3))
 # Manual keyword settings
 # Max number of manual (positive) keywords a user can add
 MAX_MANUAL_KEYWORDS = int(os.getenv("MAX_MANUAL_KEYWORDS", 3))
