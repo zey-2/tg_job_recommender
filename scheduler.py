@@ -19,6 +19,29 @@ from llm_service import get_llm_service
 logger = logging.getLogger(__name__)
 
 
+def _calculate_lucky_number(encouragement: str, user_id: int, day_of_month: int) -> str:
+    """Calculate lucky number: ASCII sum of encouragement + (user_id * day_of_month) mod 10000.
+
+    Returns a 4-digit zero-padded string.
+    """
+    if not encouragement:
+        encouragement_sum = 0
+    else:
+        encouragement_sum = sum(ord(c) for c in encouragement)
+    try:
+        uid = int(user_id)
+    except Exception:
+        uid = 0
+    result = (encouragement_sum + (uid * int(day_of_month))) % 10000
+    return str(result).zfill(4)
+
+
+def _pick_lucky_emoji() -> str:
+    """Return a random emoji chosen for lucky number display."""
+    emojis = ["🍀", "🎲", "⭐", "🎰"]
+    return random.choice(emojis)
+
+
 class DigestScheduler:
     """Handles daily digest notifications."""
     
@@ -28,12 +51,15 @@ class DigestScheduler:
         self.findsgjobs = get_findsgjobs_client()
         self.keyword_manager = get_keyword_manager()
         self.job_bot = get_bot()
-    
+
     async def send_digest_to_user(self, bot: Bot, user: Dict):
         """Send daily digest to a single user."""
         user_id = user['user_id']
         # Extract optional encouragement message passed via user dict
         encouragement = user.get('encouragement')
+        # Lucky number (and emoji) will be computed per user when encouragement exists
+        lucky_number = None
+        lucky_emoji = None
         
         try:
             # Get user keywords
@@ -82,7 +108,20 @@ class DigestScheduler:
             # Send header (include optional daily encouragement if present)
             header = "📬 *Your Daily Job Digest*\n"
             if encouragement:
-                header += f"💪 {encouragement}\n\n"
+                # Compute lucky number using ASCII sum + (user_id * day_of_month) then mod 10000
+                try:
+                    # compute with timezone-aware day of month
+                    day_of_month = datetime.now(timezone(config.DEFAULT_TIMEZONE)).day
+                    lucky_number = _calculate_lucky_number(encouragement, user_id, day_of_month)
+                    lucky_emoji = _pick_lucky_emoji()
+                except Exception:
+                    # Fail gracefully - skip lucky number
+                    lucky_number = None
+                    lucky_emoji = None
+
+                header += f"💪 {encouragement}\n"
+                if lucky_number:
+                    header += f"{lucky_emoji} Your lucky number today: *{lucky_number}*\n\n"
             header += "Here are your top 5:\n"
             await bot.send_message(
                 chat_id=user_id,

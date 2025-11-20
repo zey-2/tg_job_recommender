@@ -62,8 +62,7 @@ Their current top keywords are:
 
 Based on this {user_reaction}, suggest 8-10 keywords that should be added or reinforced in their profile. 
 For each keyword:
-- Common words that are used for searching jobs
-- Extract skills, technologies, roles, industries
+- Common words that appear in job titles
 - Assign sentiment: "positive" (user wants this) or "negative" (user avoids this)
 - Provide a brief rationale
 
