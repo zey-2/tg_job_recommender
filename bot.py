@@ -215,7 +215,7 @@ class JobBot:
         # Pick a random preferred keyword to try first (if any) and attempt search with retries
         preferred_keyword = random.choice(keyword_list) if keyword_list else None
         jobs, used_keyword, deleted_keywords, manual_failed, used_recent = self.keyword_manager.search_with_keyword_retry(
-            user_id=user_id, findsg_client=self.findsgjobs, context=context, limit=50, preferred_keyword=preferred_keyword
+            user_id=user_id, findsg_client=self.findsgjobs, context=context, limit=100, preferred_keyword=preferred_keyword
         )
 
         # Inform user about keyword deletions or manual failures
@@ -306,7 +306,7 @@ class JobBot:
         # For digest_now: pick a random preferred keyword and attempt search with retries
         preferred_keyword = random.choice(keyword_list) if keyword_list else None
         jobs, used_keyword, deleted_keywords, manual_failed, used_recent = self.keyword_manager.search_with_keyword_retry(
-            user_id=user_id, findsg_client=self.findsgjobs, context=context, limit=50, preferred_keyword=preferred_keyword
+            user_id=user_id, findsg_client=self.findsgjobs, context=context, limit=100, preferred_keyword=preferred_keyword
         )
 
         # Inform user about keyword deletions or manual failures

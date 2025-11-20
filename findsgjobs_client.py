@@ -18,7 +18,7 @@ class FindSGJobsClient:
     BASE_URL = config.FINDSGJOBS_API_ENDPOINT
     RATE_LIMIT_MAX = 60  # requests per minute
     RATE_LIMIT_WINDOW = 60  # seconds
-    DEFAULT_PER_PAGE_COUNT = 50
+    DEFAULT_PER_PAGE_COUNT = 100
 
     def __init__(self):
         self.endpoint = config.FINDSGJOBS_API_ENDPOINT
@@ -230,7 +230,7 @@ class FindSGJobsClient:
         per_page = max(limit * 2, self.DEFAULT_PER_PAGE_COUNT) if (limit is not None) else self.DEFAULT_PER_PAGE_COUNT
         return self.search_jobs(keywords=kw, min_salary=min_salary, per_page_count=per_page, context=context)
 
-    def get_recent_jobs(self, limit: int = 50, user_id: int = None, context=None) -> List[Dict]:
+    def get_recent_jobs(self, limit: int = 100, user_id: int = None, context=None) -> List[Dict]:
         min_salary = None
         if user_id:
             user = self.db.get_user(user_id)
@@ -239,7 +239,7 @@ class FindSGJobsClient:
         per_page = max(limit * 2, self.DEFAULT_PER_PAGE_COUNT) if (limit is not None) else self.DEFAULT_PER_PAGE_COUNT
         return self.search_jobs(keywords='', min_salary=min_salary, per_page_count=per_page, context=context)
 
-    def search_custom(self, query: str, limit: int = 50, user_id: int = None, context=None) -> List[Dict]:
+    def search_custom(self, query: str, limit: int = 100, user_id: int = None, context=None) -> List[Dict]:
         min_salary = None
         if user_id:
             user = self.db.get_user(user_id)
