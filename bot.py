@@ -297,6 +297,11 @@ class JobBot:
             await update.message.reply_text("Please use /start first to register!", parse_mode=ParseMode.MARKDOWN)
             return
 
+        # Get user's keywords to pick a preferred one
+        keywords = self.db.get_user_keywords(user_id, top_k=config.TOP_K)
+        keyword_list = [kw['keyword'] for kw in keywords if not kw['is_negative']]
+        logger.info(f"[DIGEST_NOW] User {user_id} has {len(keywords)} total keywords, {len(keyword_list)} positive: {keyword_list}")
+
         # Reuse the logic from more_command but show DAILY_COUNT jobs with retry/deletion
         # For digest_now: pick a random preferred keyword and attempt search with retries
         preferred_keyword = random.choice(keyword_list) if keyword_list else None
