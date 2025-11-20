@@ -380,6 +380,31 @@ class JobBot:
             )
             return ConversationHandler.END
         
+        # Auto-add search term as manual keyword if list not full and keyword doesn't exist
+        keyword_added = False
+        normalized_query = query.lower()
+        if len(normalized_query) >= 2 and len(normalized_query) <= 60:
+            # Check if manual keyword list is full
+            manual_count = self.db.count_manual_keywords(user_id, positive_only=True)
+            if manual_count < config.MAX_MANUAL_KEYWORDS:
+                # Check if keyword already exists (any source)
+                existing = next(
+                    (kw for kw in self.db.get_user_keywords(user_id) if kw['keyword'] == normalized_query),
+                    None
+                )
+                if not existing:
+                    # Add as manual keyword with moderate weight
+                    self.db.upsert_keyword(
+                        user_id=user_id,
+                        keyword=normalized_query,
+                        weight=1.0,
+                        is_negative=False,
+                        rationale='Auto-added from search query',
+                        source='manual'
+                    )
+                    keyword_added = True
+                    logger.info(f"[SEARCH] Auto-added search term '{normalized_query}' as manual keyword for user {user_id}")
+        
         # Send top 5 results
         count = min(len(jobs), 5)
         
@@ -402,6 +427,13 @@ class JobBot:
             await update.message.reply_text(
                 message,
                 reply_markup=keyboard,
+                parse_mode=ParseMode.MARKDOWN
+            )
+        
+        # Notify user if keyword was auto-added
+        if keyword_added:
+            await update.message.reply_text(
+                f"✨ Added '*{normalized_query}*' to your profile keywords! Like jobs to refine your recommendations.",
                 parse_mode=ParseMode.MARKDOWN
             )
         
