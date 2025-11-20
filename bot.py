@@ -424,7 +424,7 @@ class JobBot:
     async def add_keyword_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Start flow to add a manual positive keyword."""
         await update.message.reply_text(
-            "✍️ *Add a Manual Keyword*\n\nSend the keyword you want to add (single word or phrase).\n\nExample: `python`, `machine learning`, `data viz`\n\nSend /cancel to cancel.",
+            "✍️ *Add a Manual Keyword*\n\nSend the keyword you want to add (single word or phrase).\n\nExample: `teacher`, `cook`, `pastry`\n\nSend /cancel to cancel.",
             parse_mode=ParseMode.MARKDOWN
         )
         return WAITING_FOR_MANUAL_KEYWORD
