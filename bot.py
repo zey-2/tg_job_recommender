@@ -173,23 +173,23 @@ class JobBot:
     async def help_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /help command."""
         help_text = (
-            "🤖 *Job Bot Commands*\n\n"
-            "📋 *Job Discovery:*\n"
+            "🤖 <b>Job Bot Commands</b>\n\n"
+            "📋 <b>Job Discovery:</b>\n"
             "/more - Get 2-3 personalized recommendations\n"
             "/search - Search for specific jobs\n\n"
-            "⚙️ *Profile & Settings:*\n"
+            "⚙️ <b>Profile &amp; Settings:</b>\n"
             "/view_keywords - View your adaptive keywords\n"
             "/add_keyword - Add a manual keyword (positive only)\n"
             "/keyword_management - Manage and remove keywords (delete, clear)\n"
             "/set_time - Set daily notification time (30-min slots)\n"
             "/toggle_notifications - Turn daily digest on/off\n\n"
-            "✨ *Daily Encouragements:* Each digest may include a short positive message generated to brighten your day.\n\n"
-            "❓ *Other:*\n"
+            "✨ <b>Daily Encouragements:</b> Each digest may include a short positive message generated to brighten your day.\n\n"
+            "❓ <b>Other:</b>\n"
             "/help - Show this help message\n"
             "/start - Reset welcome message\n\n"
-            "💡 *Tip:* Type keywords or use /search to find jobs. Like 👍 jobs to improve recommendations!"
+            "💡 <b>Tip:</b> Type keywords or use /search to find jobs. Like 👍 jobs to improve recommendations!"
         )
-        await update.message.reply_text(help_text, parse_mode=ParseMode.MARKDOWN)
+        await update.message.reply_text(help_text, parse_mode=ParseMode.HTML)
     
     async def more_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /more command - get real-time recommendations."""
