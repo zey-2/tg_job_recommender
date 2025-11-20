@@ -9,13 +9,26 @@ An intelligent Telegram bot that delivers personalized job notifications using a
 - 📈 **Smart Job Scoring**: Ranks jobs based on your preferences
 - 🔔 **Daily Digest**: Scheduled notifications at your preferred time
 - 💬 **Interactive Commands**: Easy-to-use Telegram interface
+- 💪 **Daily Encouragement**: Optional AI-generated motivational messages with each digest
+- 🎲 **Lucky Numbers**: Personalized lucky number calculated from encouragement message, user ID, and day of month
+- 💰 **Salary Filtering**: Set minimum salary threshold to filter job recommendations
+- 🔄 **Profile Reset**: Clear your profile and start fresh when needed
 
 ## Setup
 
 ### 1. Install Dependencies
 
+Using pip:
+
 ```bash
 pip install -r requirements.txt
+```
+
+Or using conda:
+
+```bash
+conda install --file requirements.txt
+conda activate telegram-job-bot
 ```
 
 ### 2. Configure Environment
@@ -55,17 +68,29 @@ python main.py digest
 
 ## Available Commands
 
+### Job Discovery
+
 - `/start` - Register and get welcome message
 - `/more` - Get 2-3 personalized job recommendations
-- `/more` - Get 2-3 personalized job recommendations
-- `/digest_now` - Receive an immediate digest (testing)
 - `/search <keywords>` - Search for specific jobs
+- `/digest_now` - Receive an immediate digest (testing)
+
+### Profile & Keywords
+
 - `/view_keywords` - View your adaptive keyword profile
 - `/add_keyword` - Add a manual positive keyword to your profile (max 4)
 - `/keyword_management` - Manage and remove keywords (delete one, clear auto/manual/all with confirmation)
-- `/set_time <HH:MM>` - Set daily notification time (30-min slots)
+- `/reset_profile` - Reset your profile (keywords and interaction history)
+
+### Settings
+
+- `/set_time <HH:MM>` - Set daily notification time (30-min slots, Singapore Time)
+- `/set_min_salary` - Set minimum monthly salary filter (SGD)
 - `/toggle_notifications` - Turn daily digest on/off
-- `/help` - Show help message
+
+### Help
+
+- `/help` - Show help message with all commands
 
 ## Project Structure
 
@@ -91,66 +116,39 @@ tg_job_recommender/
 3. **Profile Update**: Keywords that appeared in the job are immediately reinforced/penalized, then the LLM suggests new terms
 4. **Job Scoring**: Future jobs are ranked by keyword match
 5. **Adaptive Learning**: Weights decay over time to stay current
-6. **Manual Keywords**: Users can add up to 4 manual positive keywords; these are considered fixed (no decay) and cannot be overwritten by automatically generated keywords. Auto keywords are capped at 4, keeping a clean 4 manual + 4 auto policy.
+6. **Manual Keywords**: Users can add up to 4 manual positive keywords; these are considered fixed (no decay) and cannot be overwritten by automatically generated keywords. Auto keywords are capped at 4, keeping a clean 4 manual + 4 auto policy
+7. **Daily Encouragement**: Each digest optionally includes an AI-generated motivational message
+8. **Lucky Number**: When encouragement is enabled, a personalized lucky number (0-9999) is calculated using ASCII sum of the encouragement text + (user_id × day_of_month) mod 10000
 
-## Deployment (Cloud Run)
+## Deployment
 
-### Build Docker Image
+The bot is designed to run as a long-running polling service. For production deployment:
 
-```dockerfile
-FROM python:3.11-slim
-
-WORKDIR /app
-
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
-
-COPY . .
-
-EXPOSE 8080
-
- CMD ["python", "main.py"]
-```
-
-### Deploy to Google Cloud Run
-
-```bash
-gcloud run deploy telegram-job-bot \
-  --source . \
-  --platform managed \
-  --region asia-southeast1 \
-  --allow-unauthenticated
-```
-
-### Set Up Cloud Scheduler
-
-Create a job that hits `/digest-cron` every 30 minutes:
-
-```bash
-gcloud scheduler jobs create http digest-job \
-  --schedule="*/30 * * * *" \
-  --uri="https://your-cloud-run-url/digest-cron" \
-  --http-method=POST
-```
+1. **Use a persistent hosting service** (VPS, dedicated server, or platform with always-on containers like Render, Railway, etc.)
+2. **Run in polling mode**: `python main.py` (default mode)
+3. **Enable background scheduler**: The bot includes an in-process scheduler that checks every minute for users due for digest delivery
+4. **Set environment variables**: Ensure all required credentials are configured
 
 ## Environment Variables
 
-| Variable                        | Description                                                                                   | Default                   |
-| ------------------------------- | --------------------------------------------------------------------------------------------- | ------------------------- |
-| `TELEGRAM_BOT_TOKEN`            | Telegram bot token                                                                            | Required                  |
-| `FINDSGJOBS_API_ENDPOINT`       | FindSGJobs API endpoint (search or searchable)                                                | Required                  |
-| `OPENAI_API_KEY`                | OpenAI API key                                                                                | Required                  |
-| `TOP_K`                         | Max adaptive keywords                                                                         | 8                         |
-| `DAILY_COUNT`                   | Jobs per daily digest                                                                         | 5                         |
-| `DECAY`                         | Weight decay factor                                                                           | 0.98                      |
-| `LIKE_BOOST`                    | Weight increase on like                                                                       | 1.0                       |
-| `DISLIKE_PENALTY`               | Weight decrease on dislike                                                                    | -1.0                      |
-| `MAX_NEW_POSITIVE_PER_FEEDBACK` | New positive keywords allowed per feedback once you already have 8                            | 3                         |
-| `MAX_NEW_NEGATIVE_PER_FEEDBACK` | New negative keywords allowed per feedback cycle                                              | 2                         |
-| `WEBHOOK_BASE_URL`              | Fully-qualified base URL Render/Cloud Run should expose (falls back to `RENDER_EXTERNAL_URL`) | Required for webhook mode |
-| `SCHEDULER_ENABLED`             | Enable in-process scheduler (polling mode)                                                    | true                      |
-| `SCHEDULER_INTERVAL_SECONDS`    | Scheduler interval in seconds for digest checks                                               | 60                        |
-| `SCHEDULER_TZ`                  | Scheduler timezone                                                                            | Asia/Singapore            |
+| Variable                        | Description                                                        | Default        |
+| ------------------------------- | ------------------------------------------------------------------ | -------------- |
+| `TELEGRAM_BOT_TOKEN`            | Telegram bot token                                                 | Required       |
+| `FINDSGJOBS_API_ENDPOINT`       | FindSGJobs API endpoint (search or searchable)                     | Required       |
+| `OPENAI_API_KEY`                | OpenAI API key                                                     | Required       |
+| `TOP_K`                         | Max adaptive keywords                                              | 8              |
+| `DAILY_COUNT`                   | Jobs per daily digest                                              | 5              |
+| `DECAY`                         | Weight decay factor                                                | 0.98           |
+| `LIKE_BOOST`                    | Weight increase on like                                            | 1.0            |
+| `DISLIKE_PENALTY`               | Weight decrease on dislike                                         | -1.0           |
+| `MAX_NEW_POSITIVE_PER_FEEDBACK` | New positive keywords allowed per feedback once you already have 8 | 3              |
+| `MAX_NEW_NEGATIVE_PER_FEEDBACK` | New negative keywords allowed per feedback cycle                   | 2              |
+| `SCHEDULER_ENABLED`             | Enable in-process scheduler (polling mode)                         | true           |
+| `SCHEDULER_INTERVAL_SECONDS`    | Scheduler interval in seconds for digest checks                    | 60             |
+| `SCHEDULER_TZ`                  | Scheduler timezone                                                 | Asia/Singapore |
+| `DEFAULT_TIMEZONE`              | Default timezone for users and lucky number calculation            | Asia/Singapore |
+| `ENCOURAGEMENT_MAX_TOKENS`      | Max tokens for LLM-generated encouragement messages                | 50             |
+| `MIN_SALARY_DEFAULT`            | Default minimum salary filter (SGD), 0 = no filter                 | 0              |
 
 ## License
 
