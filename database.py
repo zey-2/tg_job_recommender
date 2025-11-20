@@ -643,14 +643,18 @@ class Database:
 
         Args:
             user_id: The telegram user id
-            keep_settings: If True, preserve notification and prefs fields
+            keep_settings: If True, preserve notification enabled flag and prefs_json,
+                          but still reset notification_time and min_salary_preference to defaults
         """
         cursor = self.conn.cursor()
         # Delete user keywords
         cursor.execute("DELETE FROM user_keywords WHERE user_id = ?", (user_id,))
         # Delete user interactions
         cursor.execute("DELETE FROM interactions WHERE user_id = ?", (user_id,))
-        if not keep_settings:
+        if keep_settings:
+            # Reset notification_time and min_salary_preference to defaults, keep notifications_enabled and prefs_json
+            cursor.execute("UPDATE users SET notification_time = ?, min_salary_preference = NULL, updated_at = CURRENT_TIMESTAMP WHERE user_id = ?", (config.DEFAULT_NOTIFICATION_TIME, user_id))
+        else:
             # Reset prefs_json to empty and clear notification settings
             cursor.execute("UPDATE users SET prefs_json = ?, notifications_enabled = ?, notification_time = ?, min_salary_preference = NULL, updated_at = CURRENT_TIMESTAMP WHERE user_id = ?", (json.dumps({}), 1 if config.DEFAULT_NOTIFICATIONS else 0, config.DEFAULT_NOTIFICATION_TIME, user_id))
         self.conn.commit()
