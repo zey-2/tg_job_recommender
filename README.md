@@ -14,6 +14,14 @@ An intelligent Telegram bot that delivers personalized job notifications using a
 - 💰 **Salary Filtering**: Set minimum salary threshold to filter job recommendations
 - 🔄 **Profile Reset**: Clear your profile and start fresh when needed
 
+## Introductory Video
+
+[![Introductory Video](https://img.youtube.com/vi/ShDbWd0dFgA/0.jpg)](https://youtu.be/ShDbWd0dFgA)
+
+## Link to Telegram Bot
+
+[![Telegram Bot](https://img.shields.io/badge/Telegram-Job%20Recommender-blue?logo=telegram)](https://t.me/sg_jobs_radar_bot)
+
 ## Setup
 
 ### 1. Install Dependencies
@@ -42,7 +50,7 @@ cp .env.example .env
 Required credentials:
 
 - **TELEGRAM_BOT_TOKEN**: Get from [@BotFather](https://t.me/botfather)
-  -- **FINDSGJOBS_API_ENDPOINT**: FindSGJobs endpoint URL (default: https://www.findsgjobs.com/apis/job/search)
+  -- **FINDSGJOBS_API_ENDPOINT**: FindSGJobs endpoint URL (https://www.findsgjobs.com/apis/job/searchable)
 - **OPENAI_API_KEY**: Get from [OpenAI Platform](https://platform.openai.com/)
 
 ### 3. Run the Bot
@@ -116,7 +124,7 @@ tg_job_recommender/
 3. **Profile Update**: Keywords that appeared in the job are immediately reinforced/penalized, then the LLM suggests new terms
 4. **Job Scoring**: Future jobs are ranked by keyword match
 5. **Adaptive Learning**: Weights decay over time to stay current
-6. **Manual Keywords**: Users can add up to 4 manual positive keywords; these are considered fixed (no decay) and cannot be overwritten by automatically generated keywords. Auto keywords are capped at 4, keeping a clean 4 manual + 4 auto policy
+6. **Manual Keywords**: Users can add up to 3 manual positive keywords; these are considered fixed (no decay) and cannot be overwritten by automatically generated keywords. Auto keywords are capped at 5, keeping a clean 3 manual + 5 auto policy
 7. **Daily Encouragement**: Each digest optionally includes an AI-generated motivational message
 8. **Lucky Number**: When encouragement is enabled, a personalized lucky number (0-9999) is calculated using ASCII sum of the encouragement text + (user_id × day_of_month) mod 10000
 
@@ -124,7 +132,7 @@ tg_job_recommender/
 
 The bot is designed to run as a long-running polling service. For production deployment:
 
-1. **Use a persistent hosting service** (VPS, dedicated server, or platform with always-on containers like Render, Railway, etc.)
+1. **Use a persistent hosting service** (VPS, dedicated server, or platform with always-on containers)
 2. **Run in polling mode**: `python main.py` (default mode)
 3. **Enable background scheduler**: The bot includes an in-process scheduler that checks every minute for users due for digest delivery
 4. **Set environment variables**: Ensure all required credentials are configured

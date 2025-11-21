@@ -154,17 +154,9 @@ class JobBot:
             "• Use /search or just type keywords to find specific jobs\n"
             "• Like 👍 each job to help refine recommendations\n"
             "• I'll learn what you like and improve over time!\n\n"
+            "• Use /more - Get more personalized recommendations\n"
             "📢 <b>Notifications:</b> Daily digest notifications are enabled by default. Use /toggle_notifications to turn them off.\n\n"
-            "• Each digest may include a short, positive encouragement message to brighten your day.\n\n"
-            "📝 <b>Available Commands:</b>\n"
-            "/more - Get 2-3 personalized recommendations (use multiple times)\n"
-            "/search - Search for specific jobs\n"
-            "/view_keywords - View your keyword profile\n"
-            "/add_keyword - Add a manual keyword to your profile\n"
-            "/keyword_management - Manage and remove keywords\n"
-            "/set_time - Set notification time\n"
-            "/toggle_notifications - Turn daily digest on/off\n"
-            "/help - Show this help message"
+            "• Each digest may include a short, positive encouragement message and lucky number to brighten your day."
         )
 
         
