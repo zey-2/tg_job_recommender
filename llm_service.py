@@ -1,7 +1,9 @@
 """LLM service for keyword expansion using OpenAI."""
 import json
+from datetime import datetime
 from typing import List, Dict, Optional
 from openai import OpenAI
+from pytz import timezone
 import config
 
 
@@ -181,9 +183,10 @@ Focus on concrete, searchable terms. Avoid overly generic words."""
                 "Every day is a new chance to learn and grow.",
                 "Take a deep breath — you're doing better than you think.",
             ]
-            # Log a lightweight message and return a deterministic fallback
+            # Log a lightweight message and return a deterministic daily fallback
             print(f"LLM encouragement generation failed: {e}")
-            return fallbacks[0]
+            today = datetime.now(timezone(config.DEFAULT_TIMEZONE)).date().toordinal()
+            return fallbacks[today % len(fallbacks)]
 
 
 # Global service instance
