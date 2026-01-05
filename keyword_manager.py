@@ -30,6 +30,15 @@ class KeywordManager:
         tokens = text.split()
         # Filter out very short tokens
         return [t for t in tokens if len(t) > 2]
+
+    def _keyword_matches_text(self, keyword: str, tokens: Counter, text: str) -> bool:
+        """Check whether a keyword matches tokenized or raw text."""
+        if not keyword:
+            return False
+        if ' ' in keyword:
+            pattern = r'\b{}\b'.format(re.escape(keyword))
+            return re.search(pattern, text) is not None
+        return keyword in tokens
     
     def score_job(self, job: Dict, user_keywords: List[Dict]) -> Tuple[float, List[str]]:
         """
@@ -45,8 +54,10 @@ class KeywordManager:
         job_id = job.get('id', 'N/A')
         
         # Tokenize job content
-        title_tokens = self.tokenize(job.get('title', ''))
-        desc_tokens = self.tokenize(job.get('description', ''))
+        job_title = job.get('title', '')
+        job_description = job.get('description', '')
+        title_tokens = self.tokenize(job_title)
+        desc_tokens = self.tokenize(job_description)
         company_tokens = self.tokenize(
             job.get('company', {}).get('display_name', '') 
             if isinstance(job.get('company'), dict) 
@@ -80,9 +91,17 @@ class KeywordManager:
         for m in mrt:
             mrt_tokens.extend(self.tokenize(m))
         
-        # Combine all tokens (include skills, categories, mrt)
-        all_tokens = title_tokens + desc_tokens + company_tokens + skill_tokens + cat_tokens + mrt_tokens
-        token_counts = Counter(all_tokens)
+        # Combine core tokens (exclude skills/categories for separate weighting)
+        base_tokens = title_tokens + desc_tokens + company_tokens + mrt_tokens
+        token_counts = Counter(base_tokens)
+        job_text_block = " ".join([
+            job_title or "",
+            job_description or "",
+            " ".join(skills),
+            " ".join(categories),
+            " ".join(mrt),
+            job.get('company', {}).get('display_name', '') if isinstance(job.get('company'), dict) else str(job.get('company', ''))
+        ]).lower()
         
         # Calculate score
         score = 0.0
@@ -94,8 +113,8 @@ class KeywordManager:
             weight = kw_data['weight']
             is_negative = bool(kw_data['is_negative'])
             
-            # Check if keyword appears in tokens
-            if keyword in token_counts:
+            # Check if keyword appears in tokens or full text for phrases
+            if self._keyword_matches_text(keyword, token_counts, job_text_block):
                 matched_keywords.append(keyword)
                 
                 # Hard negative filter - immediately reject
@@ -121,9 +140,12 @@ class KeywordManager:
             logger.debug(f"[SCORE] Job {job_id} additional penalty for only negative matches (score: {score})")
         
         # Small boost for title matches (title is more important)
+        title_text = " ".join(title_tokens)
+        title_counter = Counter(title_tokens)
         title_match_bonus = sum(
-            0.5 for kw_data in user_keywords 
-            if kw_data['keyword'] in title_tokens and not kw_data['is_negative']
+            0.5 for kw_data in user_keywords
+            if not kw_data['is_negative']
+            and self._keyword_matches_text(kw_data['keyword'].lower(), title_counter, title_text)
         )
         if title_match_bonus > 0:
             score += title_match_bonus
@@ -147,10 +169,9 @@ class KeywordManager:
                 matched_keywords.append(kw)
                 logger.debug(f"[SCORE] Job {job_id} category bonus for '{kw}' (+0.6) -> {score}")
         
-        final_score = max(score, 0.0)
-        logger.debug(f"[SCORE] Job {job_id} final score: {final_score}, matched: {matched_keywords}")
+        logger.debug(f"[SCORE] Job {job_id} final score: {score}, matched: {matched_keywords}")
         
-        return final_score, matched_keywords
+        return score, matched_keywords
 
     # (search_with_keyword_retry implementation moved lower to keep randomized behavior)
     
@@ -245,9 +266,10 @@ class KeywordManager:
         if preferred_keyword:
             # Ensure preferred_keyword is in the remaining list
             remaining = [k for k in remaining if k.get('keyword') != preferred_keyword]
+            remaining.sort(key=lambda k: (-float(k.get('weight', 0)), random.random()))
             attempts_order = [preferred_keyword] + [k.get('keyword') for k in remaining]
         else:
-            random.shuffle(remaining)
+            remaining.sort(key=lambda k: (-float(k.get('weight', 0)), random.random()))
             attempts_order = [k.get('keyword') for k in remaining]
 
         max_attempts = min(config.MAX_KEYWORD_RETRIES, len(attempts_order))
