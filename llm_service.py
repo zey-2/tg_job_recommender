@@ -1,5 +1,6 @@
 """LLM service for keyword expansion using OpenAI."""
 import json
+import re
 from datetime import datetime
 from typing import List, Dict, Optional
 from openai import OpenAI
@@ -14,6 +15,16 @@ class LLMKeywordService:
         """Initialize OpenAI client."""
         self.client = OpenAI(api_key=api_key or config.OPENAI_API_KEY)
         self.model = "gpt-4o-mini"  # Cost-effective model
+        self._stopwords = {
+            "job", "jobs", "role", "position", "work", "company", "team", "great",
+            "opportunity", "apply", "responsibilities", "requirements", "skill",
+            "skills", "candidate", "candidates", "experience", "preferred"
+        }
+
+    def _normalize_keyword(self, keyword: str) -> str:
+        keyword = re.sub(r"[^\w\s-]", " ", keyword.lower())
+        keyword = re.sub(r"\s+", " ", keyword).strip()
+        return keyword
     
     def expand_keywords(self, 
                        job_title: str,
@@ -105,10 +116,21 @@ Focus on concrete, searchable terms. Avoid overly generic words."""
             
             # Validate and clean results
             validated = []
+            seen_keywords = set()
             for item in result:
                 if isinstance(item, dict) and 'keyword' in item and 'sentiment' in item:
+                    normalized_keyword = self._normalize_keyword(str(item['keyword']))
+                    if not normalized_keyword:
+                        continue
+                    if len(normalized_keyword) < 2 or len(normalized_keyword) > 60:
+                        continue
+                    if normalized_keyword in self._stopwords:
+                        continue
+                    if normalized_keyword in seen_keywords:
+                        continue
+                    seen_keywords.add(normalized_keyword)
                     validated.append({
-                        'keyword': str(item['keyword']).lower().strip(),
+                        'keyword': normalized_keyword,
                         'sentiment': str(item['sentiment']).lower(),
                         'rationale': str(item.get('rationale', '')).strip()
                     })
